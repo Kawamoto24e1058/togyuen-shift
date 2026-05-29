@@ -1,0 +1,35 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 従業員の基本プロフィール
+    match /users/{userId} {
+      // 誰でもログインユーザーのプロフィールは読み取り可能
+      allow read: if request.auth != null;
+      // 新規登録・更新は本人（LINEのUIDがuserIdと一致）のみ可能
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // スケジュール希望提出データ
+    match /submissions/{submissionId} {
+      // 全員：シフト調整用にスケジュール希望の読み取りは可能
+      allow read: if request.auth != null;
+      
+      // 作成・更新・削除：自身のLINEのUIDと紐づくドキュメントのみ編集可能
+      // 二重書き換えやなりすましを徹底防衛
+      allow create, update: if request.auth != null 
+        && request.resource.data.lineUserId == request.auth.uid;
+      
+      allow delete: if request.auth != null 
+        && resource.data.lineUserId == request.auth.uid;
+    }
+    
+    // システム定休日・特別休業日の設定
+    match /settings/global {
+      allow read: if request.auth != null;
+      // 管理者（佐藤: U06c755lineUser_1, 鈴木: U06c755lineUser_2）のみ書き換え可能
+      allow write: if request.auth != null 
+        && (request.auth.uid == "U06c755lineUser_1" || request.auth.uid == "U06c755lineUser_2");
+    }
+  }
+}
