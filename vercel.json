@@ -11,5 +11,11 @@
         { "key": "Cache-Control", "value": "no-cache" }
       ]
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron-remind",
+      "schedule": "0 12 10,25 * *"
+    }
   ]
 }
