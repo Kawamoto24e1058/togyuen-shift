@@ -82,38 +82,48 @@ export default async function handler(req, res) {
       ? new URL(process.env.LINE_REDIRECT_URI).origin 
       : 'https://togyuen-shift.vercel.app'; // フォールバック用
 
-    // 4. LINE Notify 用のメッセージ本文を作成
-    const message = `\n【桃牛苑シフト提出リマインド】\n本日${date}日はシフト希望の締め切り日です。まだ提出されていない方は、お手数ですがアプリから入力をお願いします。\n\n▼未提出のスタッフ\n${namesList}\n\nアプリを開く: ${appUrl}`;
+    // 4. LINE Messaging API 用のメッセージ本文を作成
+    const message = `【桃牛苑シフト提出リマインド】\n本日${date}日はシフト希望の締め切り日です。まだ提出されていない方は、お手数ですがアプリから入力をお願いします。\n\n▼未提出のスタッフ\n${namesList}\n\nアプリを開く: ${appUrl}`;
 
-    // 5. LINE Notify へ送信 (LINE_NOTIFY_TOKEN が設定されている場合)
-    const notifyToken = process.env.LINE_NOTIFY_TOKEN;
-    if (!notifyToken) {
-      console.warn('[Cron Remind] LINE_NOTIFY_TOKEN is missing in environment variables. Skipping real POST request.');
+    // 5. LINE Messaging API を使って既存のLINEグループへプッシュ送信
+    const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+    const groupId = process.env.LINE_GROUP_ID;
+
+    if (!channelAccessToken || !groupId) {
+      console.warn('[Cron Remind] LINE_CHANNEL_ACCESS_TOKEN or LINE_GROUP_ID is missing in environment variables. Skipping real Messaging API POST request.');
       return res.status(200).json({
-        message: '未提出者を検出しましたが、LINE_NOTIFY_TOKENが設定されていないため通知をスキップしました。',
+        message: '未提出者を検出しましたが、LINE Messaging API環境変数が未設定のため通知をスキップしました。',
         reminded: false,
         unsubmitted: unsubmittedMembers.map(m => m.name)
       });
     }
 
-    // LINE Notify API へ POST リクエストを送信
-    const response = await fetch('https://notify-api.line.me/api/notify', {
+    // LINE Messaging API Push Message POST リクエストを送信
+    const response = await fetch('https://api.line.me/v2/bot/message/push', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': `Bearer ${notifyToken}`
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${channelAccessToken}`
       },
-      body: new URLSearchParams({ message })
+      body: JSON.stringify({
+        to: groupId,
+        messages: [
+          {
+            type: 'text',
+            text: message
+          }
+        ]
+      })
     });
 
     if (!response.ok) {
       const errText = await response.text();
-      throw new Error(`LINE Notify API responded with status ${response.status}: ${errText}`);
+      throw new Error(`LINE Messaging API Push responded with status ${response.status}: ${errText}`);
     }
 
-    console.info('[Cron Remind] LINE group reminder successfully sent.');
+    console.info('[Cron Remind] LINE Messaging API Push reminder successfully sent to group.');
     return res.status(200).json({
-      message: '未提出スタッフの抽出およびLINEリマインド通知の送信に成功しました。',
+      message: '未提出スタッフの抽出およびLINE Messaging APIプッシュ通知の送信に成功しました。',
       reminded: true,
       unsubmittedCount: unsubmittedMembers.length,
       unsubmitted: unsubmittedMembers.map(m => m.name)
