@@ -1216,7 +1216,7 @@
                               isHighlighted ? 'neon-highlight' : ''
                             }"
                           >
-                            <span class="font-bold truncate">{s.member_name}</span>
+                            <span class="font-bold truncate">{isTrainee ? '🔰(研) ' : ''}{s.member_name}</span>
                             <span class="text-[8px] opacity-75 font-mono ml-2 shrink-0">{s.start_time}</span>
                           </div>
                         {/each}
@@ -1681,7 +1681,7 @@
                               isTrainee ? 'trainee-pill' : ''
                             } text-[10px] py-1 px-2.5 rounded-full"
                           >
-                            <span class="font-extrabold truncate">{s.member_name}</span>
+                            <span class="font-extrabold truncate">{isTrainee ? '🔰(研) ' : ''}{s.member_name}</span>
                             <button
                               on:click={() => handleRemoveStaff(d.dateStr, s.member_id, s.role)}
                               class="opacity-60 hover:opacity-100 hover:text-red-600 p-0.5 ml-1.5"
@@ -1783,7 +1783,7 @@
                   {@const m = members.find(mem => mem.id === s.member_id)}
                   <div class="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-100">
                     <div>
-                      <span class="text-xs font-bold text-slate-800">{s.member_name}</span>
+                      <span class="text-xs font-bold text-slate-800">{m?.status === 'trainee' ? '🔰(研) ' : ''}{s.member_name}</span>
                       <span class="text-[10px] text-slate-500 ml-2">({s.role === 'kitchen' ? '厨' : 'ホ'})</span>
                     </div>
 

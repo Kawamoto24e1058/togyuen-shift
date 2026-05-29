@@ -36,6 +36,14 @@ def generate_shift(data_path="sample_data.json"):
     members = data["members"]
     special_holidays = {datetime.strptime(d, "%Y-%m-%d").date() for d in data["special_holidays"]}
 
+    # 研修中・通常スタッフの分類ヘルパー (FirestoreやDBスキーマの揺れに対応)
+    def is_trainee(m):
+        status = m.get("status", "")
+        return status in ("trainee", "training") or m.get("isTraining", False) is True
+
+    def is_regular(m):
+        return not is_trainee(m)
+
     # 日付リストの生成
     dates = []
     curr = start_date
@@ -77,7 +85,7 @@ def generate_shift(data_path="sample_data.json"):
     e_pos = {}
     e_neg = {}
     for m in members:
-        if m["status"] == "regular":
+        if is_regular(m):
             m_id = m["id"]
             e_pos[m_id] = pulp.LpVariable(f"e_pos_{m_id}", lowBound=0, cat=pulp.LpContinuous)
             e_neg[m_id] = pulp.LpVariable(f"e_neg_{m_id}", lowBound=0, cat=pulp.LpContinuous)
@@ -104,7 +112,7 @@ def generate_shift(data_path="sample_data.json"):
         m_id = m["id"]
         for d in dates:
             avail = submissions.get(m_id, {}).get(d, False)
-            if m["status"] == "trainee":
+            if is_trainee(m):
                 # 研修生は土日(5=土, 6=日)以外は強制出勤不可
                 if d.weekday() not in (5, 6):
                     for r in m["roles"]:
@@ -118,15 +126,12 @@ def generate_shift(data_path="sample_data.json"):
                         prob += x[(m_id, d, r)] == 0
 
     # 制約 (C): 研修生の出勤フラグ y[d] の定義
-    trainees = [m for m in members if m["status"] == "trainee"]
+    trainees = [m for m in members if is_trainee(m)]
     for d in dates:
         if trainees:
-            for t in trainees:
-                for r in t["roles"]:
-                    # 研修生 t がどれかの役割で出勤したら y[d] は必ず 1
-                    prob += y[d] >= x[(t["id"], d, r)]
-            # y[d] は研修生の出勤数の総和以下（誰も出勤しなければ必ず 0）
-            prob += y[d] <= pulp.lpSum(x[(t["id"], d, r)] for t in trainees for r in t["roles"])
+            # 研修生は1日最大1名まで勤務 (y[d] は 0 または 1)
+            # 研修生全体の割り当て合計数が y[d] と等しくなるように設定
+            prob += pulp.lpSum(x[(t["id"], d, r)] for t in trainees for r in t["roles"]) == y[d]
         else:
             prob += y[d] == 0
 
@@ -145,13 +150,26 @@ def generate_shift(data_path="sample_data.json"):
 
     # 制約 (E): 通常バイトの平準化制約 (実働日数 - 目標日数 = プラス誤差 - マイナス誤差)
     for m in members:
-        if m["status"] == "regular":
+        if is_regular(m):
             m_id = m["id"]
             work_days = pulp.lpSum(x[(m_id, d, r)] for d in dates for r in m["roles"])
             prob += work_days - target_days == e_pos[m_id] - e_neg[m_id]
 
-    # 5. 目的関数の設定 (通常バイトの目標日数に対する誤差の総和を最小化)
-    prob += pulp.lpSum(e_pos[m["id"]] + e_neg[m["id"]] for m in members if m["status"] == "regular")
+    # 5. 目的関数の設定
+    # - 通常バイトの目標日数に対する誤差の総和を最小化 (基本重み: 1.0)
+    # - 土日に研修生のシフト希望がある場合、その研修生を最優先で配置するインセンティブ（大きなマイナス費用）
+    regular_deviation_penalty = pulp.lpSum(e_pos[m["id"]] + e_neg[m["id"]] for m in members if is_regular(m))
+    
+    # 研修生の土日優先配置インセンティブ
+    trainee_weekend_reward = pulp.lpSum(
+        - 100 * x[(t["id"], d, r)]
+        for t in members if is_trainee(t)
+        for d in dates if d.weekday() in (5, 6) # 5=土曜日, 6=日曜日
+        for r in t["roles"]
+        if submissions.get(t["id"], {}).get(d, False)
+    )
+
+    prob += regular_deviation_penalty + trainee_weekend_reward
 
     # 6. ソルバーの実行
     print("最適化ソルバーを実行中...")
@@ -196,7 +214,7 @@ def generate_shift(data_path="sample_data.json"):
                         "id": m_id,
                         "name": m["name"],
                         "role": r,
-                        "status": m["status"],
+                        "status": "trainee" if is_trainee(m) else "regular",
                         "time": f"{start_time}〜"
                     })
                     # 保存用データ
@@ -220,9 +238,9 @@ def generate_shift(data_path="sample_data.json"):
     for m in members:
         m_id = m["id"]
         total_days = sum(pulp.value(x[(m_id, d, r)]) for d in dates for r in m["roles"])
-        m_type = "通常" if m["status"] == "regular" else "研修"
+        m_type = "通常" if is_regular(m) else "研修"
         role_type = " & ".join(["キッチン" if r == "kitchen" else "ホール" for r in m["roles"]])
-        print(f"- {m['name']:<15} ({m_type}・{role_type}): {int(total_days)}日 / 目標 {target_days if m['status'] == 'regular' else '土日のみ'}日")
+        print(f"- {m['name']:<15} ({m_type}・{role_type}): {int(total_days)}日 / 目標 {target_days if is_regular(m) else '土日のみ'}日")
     print("=" * 80)
 
     # 7. ルール・制約の自動検証テスト（アサーション）
@@ -257,7 +275,7 @@ def generate_shift(data_path="sample_data.json"):
             test_passed = False
             
         # 3. 研修生が出勤している日の総人数は3名か
-        has_trainee = any(s["status"] == "trainee" for s in today_staff)
+        has_trainee = any(is_trainee(s) for s in today_staff)
         if has_trainee:
             if len(today_staff) != 3:
                 print(f"❌ エラー: {d} に研修生が出勤していますが、総人数が3名ではありません (現在: {len(today_staff)}名)。")
@@ -269,7 +287,7 @@ def generate_shift(data_path="sample_data.json"):
                 
     # 4. 研修生は土日のみ割り当てられているか
     for m in members:
-        if m["status"] == "trainee":
+        if is_trainee(m):
             for d in dates:
                 for r in m["roles"]:
                     if pulp.value(x[(m["id"], d, r)]) > 0.9:
