@@ -253,9 +253,80 @@
     unlinkedLineUserId = null;
     unlinkedDisplayName = null;
     authErrorMessage = null;
+    showRegistrationForm = false;
+    regName = "";
+    regRoles = [];
+    regStatus = "regular";
     staffAvailabilities = {};
     activeTab = 'calendar'; // シフト表へリダイレクト
     triggerToast("👋 サインアウトしました。セッションを終了しました。");
+  }
+
+  // 初回プロフィール作成フォーム用のリアクティブ変数
+  let showRegistrationForm = false;
+  let regName = "";
+  let regRoles = []; // ["kitchen"], ["hall"], ["kitchen", "hall"]
+  let regStatus = "regular"; // "regular" | "trainee"
+  let isRegistering = false;
+
+  // 新規スタッフプロフィール登録処理
+  async function handleRegisterProfile() {
+    if (!regName.trim()) {
+      triggerToast("⚠️ お名前を入力してください。");
+      return;
+    }
+    if (regRoles.length === 0) {
+      triggerToast("⚠️ 担当タグ（役割）を1つ以上選択してください。");
+      return;
+    }
+
+    isRegistering = true;
+    try {
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: regName.trim(),
+          roles: regRoles,
+          status: regStatus,
+          lineUserId: unlinkedLineUserId
+        })
+      });
+
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+
+      const data = await res.json();
+      if (data.registered) {
+        currentUser = {
+          ...data.user,
+          avatar: regRoles.includes('kitchen') ? "👨‍🍳" : "👩‍💼", // アイコン自動アサイン
+          isAdmin: data.user.id === 1 || data.user.id === 2 // 佐藤、鈴木さんを管理者とする
+        };
+
+        // ログインキャッシュを作成
+        localStorage.setItem('currentUser', JSON.stringify(currentUser));
+        triggerToast(`💚 登録が完了しました！${currentUser.name}さん、歓迎します。`);
+        
+        // 登録用ステートを綺麗に初期化
+        showRegistrationForm = false;
+        regName = "";
+        regRoles = [];
+        regStatus = "regular";
+        
+        selectedStaffId = currentUser.id;
+        await loadStaffSubmissions(currentUser.id);
+        
+        // FCM通知許可を促す
+        requestFcmToken(currentUser.lineUserId).catch(console.error);
+      }
+    } catch (err) {
+      console.error(err);
+      triggerToast(`⚠️ 登録エラー: ${err.message}`);
+    } finally {
+      isRegistering = false;
+    }
   }
 
   // ネオンハイライトギミック用 (画面A)
@@ -391,7 +462,9 @@
           // 未登録 (lineUserId が Firestore の members に未登録)
           unlinkedLineUserId = data.lineUserId;
           unlinkedDisplayName = data.displayName;
-          authErrorMessage = data.message;
+          regName = data.displayName || ""; // お名前を初期入力欄に補完
+          showRegistrationForm = true;      // Apple風初回登録フォームをアクティブにする
+          triggerToast("✨ 初回サインイン: プロフィール作成画面へ移行します。");
         }
       } catch (err) {
         console.error(err);
@@ -853,106 +926,205 @@
   <!-- メインコンテンツ -->
   <main class="max-w-7xl mx-auto px-6 mt-8">
     {#if !currentUser}
-      <!-- LINEログイン画面 (Apple風極上シンプルデザイン) -->
-      <div class="min-h-[70vh] flex items-center justify-center bg-slate-50 px-6 py-12 animate-popup rounded-3xl border border-slate-200/50 bg-white glass-panel shadow-sm" in:fade={{ duration: 150 }}>
-        <div class="max-w-md w-full p-6 flex flex-col items-center text-center space-y-8">
-          <div class="space-y-4">
-            <div class="w-16 h-16 rounded-3xl bg-[#06c755] shadow-[0_4px_16px_rgba(6,199,85,0.25)] flex items-center justify-center text-white text-3xl font-extrabold mx-auto select-none">
-              L
+      {#if showRegistrationForm}
+        <!-- Apple風初回プロフィール自律登録画面 (Pitch Black, Minimalist) -->
+        <div class="apple-setup-container" in:fade={{ duration: 250 }}>
+          <div class="apple-setup-glow"></div>
+          
+          <div class="apple-setup-content">
+            <!-- Header -->
+            <div class="text-center">
+              <div class="apple-setup-logo"></div>
+              <h2 class="apple-setup-title">プロフィールの作成</h2>
+              <p class="apple-setup-subtitle">
+                ようこそ、桃牛苑へ。<br />あなたのプロフィールを設定してシフト管理を開始しましょう。
+              </p>
             </div>
-            <h2 class="text-2xl font-black text-slate-900 tracking-tight">桃牛苑 シフト管理</h2>
-            <p class="text-xs text-slate-400 mt-1 leading-relaxed font-semibold">
-              LINEアカウントと連携して、シフトの確認や<br />
-              スケジュール希望提出をセキュアに行うことができます。
-            </p>
-          </div>
 
-          {#if isAuthenticating}
-            <!-- 認証中のローディング表示 -->
-            <div class="w-full py-12 flex flex-col items-center justify-center space-y-4">
-              <div class="w-8 h-8 rounded-full border-2 border-slate-200 border-t-[#06c755] animate-spin"></div>
-              <p class="text-xs text-slate-400 font-bold tracking-tight">LINE認証を行っています...</p>
+            <!-- Form -->
+            <div class="space-y-6">
+              <!-- Name Input -->
+              <div class="apple-form-group">
+                <label for="reg-name" class="apple-form-label">お名前 (氏名)</label>
+                <input 
+                  id="reg-name"
+                  type="text" 
+                  bind:value={regName} 
+                  placeholder="桃牛 太郎"
+                  class="apple-input-text"
+                />
+              </div>
+
+              <!-- Roles Selection (Multi-select segmented pill style) -->
+              <div class="apple-form-group">
+                <span class="apple-form-label">担当タグ (役割)</span>
+                <div class="apple-segmented-roles">
+                  <button 
+                    type="button"
+                    on:click={() => {
+                      if (regRoles.includes('kitchen')) {
+                        regRoles = regRoles.filter(r => r !== 'kitchen');
+                      } else {
+                        regRoles = [...regRoles, 'kitchen'];
+                      }
+                    }}
+                    class="apple-role-btn {regRoles.includes('kitchen') ? 'active' : ''}"
+                  >
+                    <span>🍳</span> キッチン
+                  </button>
+                  <button 
+                    type="button"
+                    on:click={() => {
+                      if (regRoles.includes('hall')) {
+                        regRoles = regRoles.filter(r => r !== 'hall');
+                      } else {
+                        regRoles = [...regRoles, 'hall'];
+                      }
+                    }}
+                    class="apple-role-btn {regRoles.includes('hall') ? 'active' : ''}"
+                  >
+                    <span>🛎</span> ホール
+                  </button>
+                </div>
+                <p class="text-[10px] text-slate-500 font-medium mt-1">※両方の職種に対応している場合は、両方とも選択できます。</p>
+              </div>
+
+              <!-- Status Selection (Segmented Control style) -->
+              <div class="apple-form-group">
+                <span class="apple-form-label">区分 (ステータス)</span>
+                <div class="apple-segmented-status">
+                  <button 
+                    type="button"
+                    on:click={() => regStatus = 'regular'}
+                    class="apple-status-btn {regStatus === 'regular' ? 'active' : ''}"
+                  >
+                    通常バイト
+                  </button>
+                  <button 
+                    type="button"
+                    on:click={() => regStatus = 'trainee'}
+                    class="apple-status-btn {regStatus === 'trainee' ? 'active' : ''}"
+                  >
+                    研修中
+                  </button>
+                </div>
+              </div>
             </div>
-          {:else}
-            <div class="w-full space-y-5">
-              {#if authErrorMessage || unlinkedLineUserId}
-                <!-- LINEアカウント未連携 / エラー表示 -->
-                <div class="w-full bg-red-50/50 border border-red-100 p-5 rounded-2xl text-left space-y-3 animate-popup">
-                  <span class="text-[9px] font-black text-red-500 uppercase tracking-widest block">LINEアカウント未連携</span>
-                  <p class="text-xs text-slate-600 leading-relaxed font-medium">
-                    {authErrorMessage || 'お使いのLINEアカウントはまだシフト管理アプリに登録されていません。'}
+
+            <!-- Action Buttons -->
+            <div>
+              <button 
+                type="button"
+                on:click={handleRegisterProfile}
+                disabled={isRegistering}
+                class="apple-btn-submit"
+              >
+                {#if isRegistering}
+                  <div class="apple-loading-spinner"></div>
+                  <span>登録処理中...</span>
+                {:else}
+                  <span>登録して開始する</span>
+                {/if}
+              </button>
+              
+              <button 
+                type="button"
+                on:click={() => {
+                  showRegistrationForm = false;
+                  unlinkedLineUserId = null;
+                }}
+                class="apple-btn-cancel"
+              >
+                キャンセルして戻る
+              </button>
+            </div>
+          </div>
+        </div>
+      {:else}
+        <!-- LINEログイン画面 (Apple風極上シンプルデザイン) -->
+        <div class="min-h-[70vh] flex items-center justify-center bg-slate-50 px-6 py-12 animate-popup rounded-3xl border border-slate-200/50 bg-white glass-panel shadow-sm" in:fade={{ duration: 150 }}>
+          <div class="max-w-md w-full p-6 flex flex-col items-center text-center space-y-8">
+            <div class="space-y-4">
+              <div class="w-16 h-16 rounded-3xl bg-[#06c755] shadow-[0_4px_16px_rgba(6,199,85,0.25)] flex items-center justify-center text-white text-3xl font-extrabold mx-auto select-none">
+                L
+              </div>
+              <h2 class="text-2xl font-black text-slate-900 tracking-tight">桃牛苑 シフト管理</h2>
+              <p class="text-xs text-slate-400 mt-1 leading-relaxed font-semibold">
+                LINEアカウントと連携して、シフトの確認や<br />
+                スケジュール希望提出をセキュアに行うことができます。
+              </p>
+            </div>
+
+            {#if isAuthenticating}
+              <!-- 認証中のローディング表示 -->
+              <div class="w-full py-12 flex flex-col items-center justify-center space-y-4">
+                <div class="w-8 h-8 rounded-full border-2 border-slate-200 border-t-[#06c755] animate-spin"></div>
+                <p class="text-xs text-slate-400 font-bold tracking-tight">LINE認証を行っています...</p>
+              </div>
+            {:else}
+              <div class="w-full space-y-5">
+                {#if authErrorMessage}
+                  <!-- LINEアカウント未連携 / エラー表示 -->
+                  <div class="w-full bg-red-50/50 border border-red-100 p-5 rounded-2xl text-left space-y-3 animate-popup">
+                    <span class="text-[9px] font-black text-red-500 uppercase tracking-widest block">エラーが発生しました</span>
+                    <p class="text-xs text-slate-600 leading-relaxed font-medium">
+                      {authErrorMessage}
+                    </p>
+                    <button 
+                      on:click={() => {
+                        authErrorMessage = null;
+                        unlinkedLineUserId = null;
+                      }}
+                      class="w-full py-2.5 bg-white border border-slate-200 text-xs font-bold text-slate-700 rounded-xl hover:bg-slate-50 transition-all active:scale-[0.99] cursor-pointer"
+                    >
+                      ログイン画面に戻る
+                    </button>
+                  </div>
+                {:else}
+                  <!-- LINEサインイン（本物） -->
+                  <button
+                    on:click={handleLineLogin}
+                    class="w-full py-4 bg-[#06c755] hover:bg-[#05b34c] text-white text-xs font-bold rounded-2xl transition-all shadow-[0_4px_12px_rgba(6,199,85,0.15)] hover:translate-y-[0.5px] flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99]"
+                  >
+                    <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24">
+                      <path d="M24 10.3c0-5.7-5.4-10.3-12-10.3s-12 4.6-12 10.3c0 5.1 4.3 9.3 10.1 10.1.4.1.9.3 1 .7.1.3 0 .7-.1 1l-.4 2.5c-.1.5.2.9.6 1 .1 0 .2 0 .3 0 .4 0 .8-.2 1.1-.6l3.3-3.9c.3-.3.5-.5.9-.6 5.3-.9 9.2-4.9 9.2-9.2z"/>
+                    </svg>
+                    LINE アカウントでサインイン
+                  </button>
+
+                  <p class="text-[9px] text-slate-400 font-medium leading-relaxed">
+                    ※LINEプラットフォームの認可を受けたセキュアなログインを行います。<br />
+                    初めての方は、ログイン後に「お名前・役割・区分」のプロフィール自律登録を行います。
                   </p>
-                  {#if unlinkedLineUserId}
-                    <div class="bg-white border border-slate-200 rounded-xl p-3 flex flex-col space-y-1">
-                      <span class="text-[8px] font-black text-slate-400 uppercase tracking-widest">あなたの LINE ID (コピーして店長へ送信してください)</span>
-                      <div class="flex items-center justify-between">
-                        <code class="text-[10px] font-mono text-slate-700 select-all font-bold block max-w-[80%] truncate">{unlinkedLineUserId}</code>
-                        <button 
-                          on:click={() => {
-                            navigator.clipboard.writeText(unlinkedLineUserId);
-                            triggerToast("📋 LINE IDをクリップボードにコピーしました！");
-                          }}
-                          class="text-[9px] font-bold text-[#0071e3] hover:underline cursor-pointer"
+
+                  <!-- 開発・デバッグ用の模擬ログイン (控えめに表示) -->
+                  <div class="pt-6 border-t border-slate-100 mt-6 space-y-3">
+                    <div class="bg-slate-50/50 p-4 rounded-2xl border border-slate-100 space-y-3 text-left">
+                      <span class="text-[8px] font-black text-slate-400 uppercase tracking-widest block">ローカル開発・テスト用ログイン (模擬)</span>
+                      <div class="flex gap-2">
+                        <select 
+                          bind:value={loginSimulateStaffId}
+                          class="flex-1 bg-white border border-slate-200 text-[11px] font-semibold rounded-xl px-2.5 py-2 text-slate-700 focus:outline-none focus:border-[#06c755] cursor-pointer"
                         >
-                          コピー
+                          {#each members as m}
+                            <option value={m.id}>{m.emoji} {m.name} さん ({m.statusName || (m.status === 'regular' ? '通常' : '研修')})</option>
+                          {/each}
+                        </select>
+                        <button
+                          on:click={handleLineLoginSimulation}
+                          class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold rounded-xl transition-all cursor-pointer active:scale-[0.98]"
+                        >
+                          模擬サインイン
                         </button>
                       </div>
                     </div>
-                  {/if}
-                  <button 
-                    on:click={() => {
-                      authErrorMessage = null;
-                      unlinkedLineUserId = null;
-                    }}
-                    class="w-full py-2.5 bg-white border border-slate-200 text-xs font-bold text-slate-700 rounded-xl hover:bg-slate-50 transition-all active:scale-[0.99] cursor-pointer"
-                  >
-                    ログイン画面に戻る
-                  </button>
-                </div>
-              {:else}
-                <!-- LINEサインイン（本物） -->
-                <button
-                  on:click={handleLineLogin}
-                  class="w-full py-4 bg-[#06c755] hover:bg-[#05b34c] text-white text-xs font-bold rounded-2xl transition-all shadow-[0_4px_12px_rgba(6,199,85,0.15)] hover:translate-y-[0.5px] flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99]"
-                >
-                  <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24">
-                    <path d="M24 10.3c0-5.7-5.4-10.3-12-10.3s-12 4.6-12 10.3c0 5.1 4.3 9.3 10.1 10.1.4.1.9.3 1 .7.1.3 0 .7-.1 1l-.4 2.5c-.1.5.2.9.6 1 .1 0 .2 0 .3 0 .4 0 .8-.2 1.1-.6l3.3-3.9c.3-.3.5-.5.9-.6 5.3-.9 9.2-4.9 9.2-9.2z"/>
-                  </svg>
-                  LINE アカウントでサインイン
-                </button>
-
-                <p class="text-[9px] text-slate-400 font-medium leading-relaxed">
-                  ※LINEプラットフォームの認可を受けたセキュアなログインを行います。<br />
-                  初回サインインの際、管理者があなたのLINE IDをFirestoreに登録する必要があります。
-                </p>
-
-                <!-- 開発・デバッグ用の模擬ログイン (控えめに表示) -->
-                <div class="pt-6 border-t border-slate-100 mt-6 space-y-3">
-                  <div class="bg-slate-50/50 p-4 rounded-2xl border border-slate-100 space-y-3 text-left">
-                    <span class="text-[8px] font-black text-slate-400 uppercase tracking-widest block">ローカル開発・テスト用ログイン (模擬)</span>
-                    <div class="flex gap-2">
-                      <select 
-                        bind:value={loginSimulateStaffId}
-                        class="flex-1 bg-white border border-slate-200 text-[11px] font-semibold rounded-xl px-2.5 py-2 text-slate-700 focus:outline-none focus:border-[#06c755] cursor-pointer"
-                      >
-                        {#each members as m}
-                          <option value={m.id}>{m.emoji} {m.name} さん ({m.statusName || (m.status === 'regular' ? '通常' : '研修')})</option>
-                        {/each}
-                      </select>
-                      <button
-                        on:click={handleLineLoginSimulation}
-                        class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-[10px] font-bold rounded-xl transition-all cursor-pointer active:scale-[0.98]"
-                      >
-                        模擬サインイン
-                      </button>
-                    </div>
                   </div>
-                </div>
-              {/if}
-            </div>
-          {/if}
+                {/if}
+              </div>
+            {/if}
+          </div>
         </div>
-      </div>
+      {/if}
     {:else}
     
     <!-- ========================================================================= -->
@@ -1708,3 +1880,256 @@
   {/if}
 
 </div>
+
+<style>
+  .apple-setup-container {
+    min-height: 70vh;
+    background-color: #000000 !important;
+    color: #ffffff !important;
+    border-radius: 24px;
+    padding: 3.5rem 2rem;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7);
+    position: relative;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    animation: fadeUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  }
+
+  .apple-setup-glow {
+    position: absolute;
+    top: -150px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 320px;
+    height: 320px;
+    background: radial-gradient(circle, rgba(0, 113, 227, 0.2) 0%, rgba(0, 0, 0, 0) 70%);
+    border-radius: 50%;
+    pointer-events: none;
+  }
+
+  .apple-setup-content {
+    width: 100%;
+    max-width: 360px;
+    z-index: 2;
+  }
+
+  .apple-setup-logo {
+    font-size: 26px;
+    width: 48px;
+    height: 48px;
+    background-color: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 1.5rem auto;
+    color: #ffffff;
+    user-select: none;
+  }
+
+  .apple-setup-title {
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    text-align: center;
+    margin-bottom: 0.5rem;
+    color: #ffffff !important;
+  }
+
+  .apple-setup-subtitle {
+    font-size: 13px;
+    color: #86868b !important;
+    text-align: center;
+    line-height: 1.5;
+    margin-bottom: 2.5rem;
+  }
+
+  .apple-form-group {
+    margin-bottom: 1.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .apple-form-label {
+    font-size: 10px;
+    font-weight: 600;
+    color: #86868b !important;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    text-align: left;
+  }
+
+  .apple-input-text {
+    width: 100% !important;
+    box-sizing: border-box !important;
+    background-color: rgba(255, 255, 255, 0.06) !important;
+    border: 1px solid rgba(255, 255, 255, 0.1) !important;
+    border-radius: 14px !important;
+    padding: 14px 18px !important;
+    color: #ffffff !important;
+    font-size: 14px !important;
+    font-weight: 500 !important;
+    transition: all 0.25s ease !important;
+  }
+
+  .apple-input-text:focus {
+    border-color: #ffffff !important;
+    background-color: rgba(255, 255, 255, 0.1) !important;
+    outline: none !important;
+    box-shadow: 0 0 0 1px #ffffff !important;
+  }
+
+  .apple-input-text::placeholder {
+    color: #48484a !important;
+  }
+
+  .apple-segmented-roles {
+    display: grid;
+    grid-template-cols: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .apple-role-btn {
+    background-color: rgba(255, 255, 255, 0.04) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 14px !important;
+    padding: 14px !important;
+    color: #aeaeb2 !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    cursor: pointer !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 8px !important;
+    transition: all 0.25s cubic-bezier(0.25, 0.1, 0.25, 1) !important;
+  }
+
+  .apple-role-btn:hover {
+    border-color: rgba(255, 255, 255, 0.2) !important;
+    color: #ffffff !important;
+    background-color: rgba(255, 255, 255, 0.06) !important;
+  }
+
+  .apple-role-btn.active {
+    background-color: #ffffff !important;
+    border-color: #ffffff !important;
+    color: #000000 !important;
+    font-weight: 700 !important;
+    box-shadow: 0 8px 24px rgba(255, 255, 255, 0.12) !important;
+  }
+
+  .apple-segmented-status {
+    display: flex;
+    background-color: rgba(255, 255, 255, 0.04) !important;
+    border: 1px solid rgba(255, 255, 255, 0.05) !important;
+    border-radius: 14px !important;
+    padding: 3px !important;
+  }
+
+  .apple-status-btn {
+    flex: 1 !important;
+    background: transparent !important;
+    border: none !important;
+    border-radius: 11px !important;
+    padding: 10px 0 !important;
+    color: #8e8e93 !important;
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    cursor: pointer !important;
+    transition: all 0.25s cubic-bezier(0.25, 0.1, 0.25, 1) !important;
+  }
+
+  .apple-status-btn:hover {
+    color: #ffffff !important;
+  }
+
+  .apple-status-btn.active {
+    background-color: #ffffff !important;
+    color: #000000 !important;
+    font-weight: 700 !important;
+    box-shadow: 0 4px 10px rgba(255, 255, 255, 0.08) !important;
+  }
+
+  .apple-btn-submit {
+    width: 100% !important;
+    background-color: #ffffff !important;
+    border: none !important;
+    border-radius: 14px !important;
+    padding: 16px !important;
+    color: #000000 !important;
+    font-size: 14px !important;
+    font-weight: 700 !important;
+    cursor: pointer !important;
+    transition: all 0.2s ease !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    gap: 8px !important;
+    margin-top: 2rem !important;
+  }
+
+  .apple-btn-submit:hover {
+    background-color: #f5f5f7 !important;
+  }
+
+  .apple-btn-submit:active {
+    transform: scale(0.985) !important;
+  }
+
+  .apple-btn-submit:disabled {
+    background-color: #1c1c1e !important;
+    color: #48484a !important;
+    cursor: not-allowed !important;
+  }
+
+  .apple-btn-cancel {
+    width: 100% !important;
+    background: transparent !important;
+    border: none !important;
+    color: #86868b !important;
+    font-size: 12px !important;
+    font-weight: 500 !important;
+    text-align: center !important;
+    cursor: pointer !important;
+    margin-top: 1rem !important;
+    transition: color 0.2s ease !important;
+  }
+
+  .apple-btn-cancel:hover {
+    color: #ffffff !important;
+    text-decoration: underline !important;
+  }
+
+  .apple-loading-spinner {
+    width: 16px;
+    height: 16px;
+    border: 2.5px solid rgba(0, 0, 0, 0.15);
+    border-top: 2.5px solid #000000;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+  }
+
+  @keyframes fadeUp {
+    from {
+      opacity: 0;
+      transform: translateY(16px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+</style>
