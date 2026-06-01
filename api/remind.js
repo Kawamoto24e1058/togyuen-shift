@@ -15,8 +15,8 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { period } = req.body;
-    // 期間指定がない場合は自動的に翌月を設定（例: 今日が 5月29日 なら 2026-06）
+    const { period } = req.body || {};
+    // 期間指定がない場合は自動的に翌月を設定（例: YYYY-MM）
     const TARGET_PERIOD = period || getNextMonthPeriod();
 
     console.info(`[API Remind] Starting reminder process for period: ${TARGET_PERIOD}`);
@@ -25,7 +25,7 @@ export default async function handler(req, res) {
     const membersSnapshot = await db.collection('members').get();
     const members = [];
     membersSnapshot.forEach(doc => {
-      members.push({ id: doc.id, ...doc.data() });
+      members.push({ id: Number(doc.id), ...doc.data() });
     });
 
     if (members.length === 0) {
@@ -60,34 +60,73 @@ export default async function handler(req, res) {
 
     const remindedNames = [];
     let fcmTokensCount = 0;
-    let lineNotifyCount = 0;
 
-    // 4. 各未提出スタッフへ通知送信
+    // (A) 個別FCM通知の送信 & 未提出者リストの作成
     for (const member of unsubmittedMembers) {
       remindedNames.push(member.name);
 
-      // (A) LINE Notify による通知送信（lineToken が設定されている場合）
-      if (member.lineToken && !member.lineToken.startsWith('DUMMY_TOKEN')) {
-        await sendLineNotify(member.name, member.lineToken);
-        lineNotifyCount++;
-      } else if (member.lineToken && member.lineToken.startsWith('DUMMY_TOKEN')) {
-        console.log(`   ✨ [LINE SIMULATION] ${member.name} さんへの LINE Notify 送信をシミュレートしました。`);
-        lineNotifyCount++;
-      }
-
-      // (B) FCM Web プッシュ通知による送信（lineUserId に紐づく FCM トークンが存在する場合）
+      // FCM Web プッシュ通知による送信（lineUserId に紐づく FCM トークンが存在する場合）
       if (member.lineUserId) {
-        const userDoc = await db.collection('users').doc(member.lineUserId).get();
-        if (userDoc.exists) {
-          const userData = userDoc.data();
-          const tokens = userData.fcmTokens || [];
-          
-          if (tokens.length > 0) {
-            await sendFcmPush(member.name, tokens);
-            fcmTokensCount += tokens.length;
+        try {
+          const userDoc = await db.collection('users').doc(member.lineUserId).get();
+          if (userDoc.exists) {
+            const userData = userDoc.data();
+            const tokens = userData.fcmTokens || [];
+            
+            if (tokens.length > 0) {
+              await sendFcmPush(member.name, tokens);
+              fcmTokensCount += tokens.length;
+            }
           }
+        } catch (e) {
+          console.warn(`[API Remind] FCM token fetch failed for ${member.name}:`, e.message);
         }
       }
+    }
+
+    // (B) LINE Messaging APIによるグループ向けリマインド一斉配信
+    const namesList = unsubmittedMembers.map(m => `・${m.name} さん`).join('\n');
+    const appUrl = process.env.LINE_REDIRECT_URI 
+      ? new URL(process.env.LINE_REDIRECT_URI).origin 
+      : 'https://togyuen-shift.vercel.app'; // フォールバック
+
+    const message = `【桃牛苑シフト提出リマインド】\nシフト希望の提出期日が近づいています。まだ提出されていない方は、お手数ですがアプリから入力をお願いします。\n\n▼未提出のスタッフ\n${namesList}\n\nアプリを開く: ${appUrl}`;
+
+    const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
+    const groupId = process.env.LINE_GROUP_ID;
+
+    let lineSent = false;
+    if (channelAccessToken && groupId) {
+      try {
+        const response = await fetch('https://api.line.me/v2/bot/message/push', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${channelAccessToken}`
+          },
+          body: JSON.stringify({
+            to: groupId,
+            messages: [
+              {
+                type: 'text',
+                text: message
+              }
+            ]
+          })
+        });
+
+        if (!response.ok) {
+          const errText = await response.text();
+          console.error(`[API Remind] LINE Messaging API Push failed: ${errText}`);
+        } else {
+          console.info(`[API Remind] LINE Messaging API Push successfully sent to group: ${groupId}`);
+          lineSent = true;
+        }
+      } catch (e) {
+        console.error(`[API Remind] Network error sending LINE Messaging API Push:`, e);
+      }
+    } else {
+      console.warn('[API Remind] LINE_CHANNEL_ACCESS_TOKEN or LINE_GROUP_ID is missing in environment variables. Skipping real Messaging API POST request.');
     }
 
     return res.status(200).json({
@@ -95,7 +134,7 @@ export default async function handler(req, res) {
       remindedCount: unsubmittedMembers.length,
       remindedNames,
       fcmTokensSent: fcmTokensCount,
-      lineNotifySent: lineNotifyCount
+      lineMessagingSent: lineSent
     });
 
   } catch (err) {
@@ -117,31 +156,6 @@ function getNextMonthPeriod() {
   return `${year}-${monthStr}`;
 }
 
-// LINE Notify API 呼び出し
-async function sendLineNotify(name, token) {
-  const message = `\n🍎 [桃牛苑 シフト提出の締め切り]\n\n${name}さん、翌月分のシフト提出締め切りが近づいています。アプリを開いてスケジュール希望の提出をお願いします！`;
-  const payload = new URLSearchParams({ message });
-
-  try {
-    const res = await fetch('https://notify-api.line.me/api/notify', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-        'Authorization': `Bearer ${token}`
-      },
-      body: payload
-    });
-    if (!res.ok) {
-      const errText = await res.text();
-      console.warn(`[LINE Notify] Failed to send to ${name}:`, errText);
-    } else {
-      console.log(`[LINE Notify] Successfully sent reminder to ${name}`);
-    }
-  } catch (e) {
-    console.error(`[LINE Notify] Network Error sending to ${name}:`, e);
-  }
-}
-
 // FCM Web プッシュ通知送信
 async function sendFcmPush(name, tokens) {
   const messagePayload = {
@@ -155,7 +169,6 @@ async function sendFcmPush(name, tokens) {
   };
 
   try {
-    // 複数のデバイスにマルチキャスト送信
     const response = await messaging.sendEachForMulticast({
       tokens: tokens,
       notification: messagePayload.notification,
@@ -168,9 +181,6 @@ async function sendFcmPush(name, tokens) {
     });
 
     console.log(`[FCM Push] Sent to ${name}. Success: ${response.successCount}, Failure: ${response.failureCount}`);
-    
-    // 無効な（アンインストール済みなどの）トークンがあればクリーンアップするのが望ましいですが、
-    // 今回はシンプルにログ出力に留めます。
   } catch (e) {
     console.error(`[FCM Push] Failed to send push to ${name}:`, e);
   }

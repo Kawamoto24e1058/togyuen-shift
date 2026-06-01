@@ -20,21 +20,14 @@ export default async function handler(req, res) {
     let targetPeriod = "";
     let displayPeriodLabel = "";
 
-    // 締め切り日（10日または25日）に応じた対象期間の自動計算
-    if (date <= 15) {
-      // 10日の実行時: 当月後半 (16日〜月末)
-      const lastDay = new Date(year, month, 0).getDate();
-      const mmStr = String(month).padStart(2, '0');
-      targetPeriod = `${year}-${mmStr}-16〜${lastDay}`;
-      displayPeriodLabel = `${year}年${month}月16日〜${lastDay}日`;
-    } else {
-      // 25日の実行時: 翌月前半 (翌月1日〜15日)
-      const nextYear = month === 12 ? year + 1 : year;
-      const nextMonth = month === 12 ? 1 : month + 1;
-      const mmStr = String(nextMonth).padStart(2, '0');
-      targetPeriod = `${nextYear}-${mmStr}-01〜15`;
-      displayPeriodLabel = `${nextYear}年${nextMonth}月1日〜15日`;
-    }
+    // 毎月10日・25日の実行時は、翌月1ヶ月分のシフト希望（YYYY-MM）を対象とします。
+    // フロントエンド（Svelte）の対象期間フォーマットと完全に一致させます。
+    const nextMonthDate = new Date(year, month, 1);
+    const nextYear = nextMonthDate.getFullYear();
+    const nextMonth = nextMonthDate.getMonth() + 1;
+    const mmStr = String(nextMonth).padStart(2, '0');
+    targetPeriod = `${nextYear}-${mmStr}`;
+    displayPeriodLabel = `${nextYear}年${nextMonth}月分`;
 
     console.info(`[Cron Remind] Checking submissions. Date: ${date}th. Target Period: ${targetPeriod} (${displayPeriodLabel})`);
 
