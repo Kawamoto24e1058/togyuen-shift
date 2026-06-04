@@ -66,6 +66,15 @@
       ],
       "status": "trainee",
       "targetDays": 0
+    },
+    {
+      "id": 8,
+      "name": "晴春",
+      "roles": [
+        "hall"
+      ],
+      "status": "regular",
+      "targetDays": 5
     }
   ],
   "special_holidays": [

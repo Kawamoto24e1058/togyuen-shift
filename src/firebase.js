@@ -31,6 +31,7 @@ const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApps()[0
 export const db = getFirestore(app);
 
 // messaging は Service Worker が必要なためブラウザ環境のみで初期化
+/** @type {import('firebase/messaging').Messaging | null} */
 let messagingInstance = null;
 export function getMessagingInstance() {
   if (typeof window === 'undefined') return null;
@@ -113,7 +114,7 @@ export async function requestNotificationPermissionAndSaveToken(lineUserId) {
  * フォアグラウンド（アプリ表示中）のメッセージ受信ハンドラを登録する。
  * バックグラウンドは Service Worker が自動で処理する。
  *
- * @param {Function} callback - メッセージ受信時に呼ばれるコールバック
+ * @param {(payload: import('firebase/messaging').MessagePayload) => void} callback - メッセージ受信時に呼ばれるコールバック
  */
 export function onForegroundMessage(callback) {
   const messaging = getMessagingInstance();

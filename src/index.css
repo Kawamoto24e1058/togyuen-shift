@@ -667,8 +667,79 @@ body {
   background-color: rgba(241, 245, 249, 0.6) !important;
 }
 
-/* Global button reset to prevent browser default outlines and backgrounds */
-button {
+/* Custom tailwind helper classes for LINE, Apple and simulator styling */
+.bg-\[\#06c755\] {
+  background-color: #06c755 !important;
+}
+.hover\:bg-\[\#05b34c\]:hover {
+  background-color: #05b34c !important;
+}
+.shadow-\[0_4px_12px_rgba\(6\,199\,85\,0\.15\)\] {
+  box-shadow: 0 4px 12px rgba(6, 199, 85, 0.15) !important;
+}
+.shadow-\[0_4px_16px_rgba\(6\,199\,85\,0\.25\)\] {
+  box-shadow: 0 4px 16px rgba(6, 199, 85, 0.25) !important;
+}
+.bg-\[\#06c755\]\/10 {
+  background-color: rgba(6, 199, 85, 0.1) !important;
+}
+.border-\[\#06c755\]\/20 {
+  border-color: rgba(6, 199, 85, 0.2) !important;
+}
+.text-\[\#06c755\] {
+  color: #06c755 !important;
+}
+
+.bg-\[\#0071e3\] {
+  background-color: #0071e3 !important;
+}
+.hover\:bg-\[\#005bb5\]:hover {
+  background-color: #005bb5 !important;
+}
+.shadow-\[0_4px_14px_rgba\(0\,113\,227\,0\.35\)\] {
+  box-shadow: 0 4px 14px rgba(0, 113, 227, 0.35) !important;
+}
+.border-\[\#0071e3\] {
+  border-color: #0071e3 !important;
+}
+.bg-\[\#0071e3\]\/10 {
+  background-color: rgba(0, 113, 227, 0.1) !important;
+}
+.text-\[\#0071e3\] {
+  color: #0071e3 !important;
+}
+
+.bg-slate-900 {
+  background-color: #0f172a !important;
+}
+.hover\:bg-slate-800:hover {
+  background-color: #1e293b !important;
+}
+.hover\:bg-slate-200:hover {
+  background-color: #e2e8f0 !important;
+}
+.bg-slate-50\/60 {
+  background-color: rgba(248, 250, 252, 0.6) !important;
+}
+.border-slate-200\/60 {
+  border-color: rgba(226, 232, 240, 0.6) !important;
+}
+.bg-white\/90 {
+  background-color: rgba(255, 255, 255, 0.9) !important;
+}
+
+.bg-\[\#34c759\] {
+  background-color: #34c759 !important;
+}
+.bg-\[\#ff9500\] {
+  background-color: #ff9500 !important;
+}
+.hover\:bg-\[\#ff3b30\]:hover {
+  background-color: #ff3b30 !important;
+}
+
+/* Global button reset to prevent browser default outlines and backgrounds (using :where to lower specificity) */
+:where(button) {
   background: transparent;
   border: none;
   padding: 0;
