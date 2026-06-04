@@ -1,5 +1,5 @@
 // api/remind.js
-import { db, messaging } from './lib/firebase-admin.js';
+import { db, messaging } from './_lib/firebase-admin.js';
 
 export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');

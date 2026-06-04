@@ -1,5 +1,5 @@
 // api/cron-remind.js
-import { db } from './lib/firebase-admin.js';
+import { db } from './_lib/firebase-admin.js';
 
 export default async function handler(req, res) {
   // セキュリティ対策: Vercel Cron からの正規なリクエストかチェック (Vercel が自動付与するヘッダー)

@@ -61,8 +61,20 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (pathname.startsWith('/api/')) {
-    const apiRoute = pathname.replace('/api/', '');
-    // サブディレクトリ階層（例: auth/line -> api/auth/line.js）に対応
+    let apiRoute = pathname.replace('/api/', '');
+    
+    // Vercel Hobby-plan limit mitigation: dispatch consolidated routes
+    if (apiRoute.startsWith('shifts/')) {
+      req.query = { ...parsedUrl.query, subpath: apiRoute.replace('shifts/', '') };
+      apiRoute = 'shifts';
+    } else if (apiRoute.startsWith('auth/')) {
+      req.query = { ...parsedUrl.query, subpath: apiRoute.replace('auth/', '') };
+      apiRoute = 'auth';
+    } else if (apiRoute === 'members/update') {
+      req.query = { ...parsedUrl.query, action: 'update' };
+      apiRoute = 'members';
+    }
+
     let modulePath = path.resolve(`./api/${apiRoute}.js`);
     
     if (!fs.existsSync(modulePath)) {

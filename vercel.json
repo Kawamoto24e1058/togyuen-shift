@@ -1,5 +1,8 @@
 {
   "rewrites": [
+    { "source": "/api/shifts/:subpath", "destination": "/api/shifts?subpath=:subpath" },
+    { "source": "/api/auth/:subpath", "destination": "/api/auth?subpath=:subpath" },
+    { "source": "/api/members/update", "destination": "/api/members?action=update" },
     { "source": "/callback", "destination": "/index.html" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],
