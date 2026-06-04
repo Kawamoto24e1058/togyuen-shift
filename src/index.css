@@ -651,3 +651,246 @@ body {
 
 .select-none { user-select: none !important; -webkit-user-select: none !important; }
 .font-sans { font-family: "Plus Jakarta Sans", "Inter", sans-serif !important; }
+
+/* Custom opacity and utility compatibility classes for Tailwind compatibility */
+.bg-white\/95 {
+  background-color: rgba(255, 255, 255, 0.95) !important;
+}
+.backdrop-blur-md {
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+}
+.border-slate-200\/50 {
+  border-color: rgba(226, 232, 240, 0.5) !important;
+}
+.bg-slate-100\/60 {
+  background-color: rgba(241, 245, 249, 0.6) !important;
+}
+
+/* Global button reset to prevent browser default outlines and backgrounds */
+button {
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  outline: none;
+}
+
+.mobile-landscape-tip {
+  display: none;
+}
+
+/* ========================================================================= */
+/* Apple-style Bottom Sheet (Unified Modal)                                   */
+/* ========================================================================= */
+
+.apple-bottom-sheet-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(15, 23, 42, 0.4);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  z-index: 9999;
+  display: flex;
+  align-items: center; /* Center vertically on desktop */
+  justify-content: center; /* Center horizontally on desktop */
+  padding: 1.5rem;
+  transition: opacity 0.2s ease-out;
+}
+
+.apple-bottom-sheet {
+  background-color: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  border-radius: 28px;
+  width: 100%;
+  max-width: 480px;
+  padding: 1.75rem;
+  position: relative;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: modalScaleIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.bottom-sheet-handle {
+  display: none; /* Hide handle on desktop */
+}
+
+@keyframes modalScaleIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* ========================================================================= */
+/* Mobile Responsive Optimizations for Smartphones & PWAs                     */
+/* ========================================================================= */
+@media (max-width: 768px) {
+  /* Dynamic Heights for Mobile Grid Cells */
+  .min-h-\[160px\] {
+    min-height: 75px !important;
+  }
+  .min-h-\[145px\] {
+    min-height: 70px !important;
+  }
+  .hope-calendar-cell {
+    min-height: 70px !important;
+  }
+  
+  /* Compact calendar cell padding and text sizes */
+  .flat-cal-cell {
+    padding: 4px !important;
+  }
+  
+  .day-number {
+    font-size: 0.95rem !important;
+  }
+  
+  /* Compact staff pills without lock/unlock and delete buttons in grid cell on mobile */
+  .staff-pill {
+    padding: 2px 4px !important;
+    font-size: 8px !important;
+    border-radius: 6px !important;
+    margin-top: 1.5px !important;
+    justify-content: center !important;
+  }
+  .staff-pill span.font-mono {
+    display: none !important;
+  }
+  .lock-btn, .delete-btn {
+    display: none !important;
+  }
+  
+  /* Hide elements marked hidden-mobile */
+  .hidden-mobile {
+    display: none !important;
+  }
+
+  /* Grid gaps and paddings */
+  .gap-3 {
+    gap: 4px !important;
+  }
+  .p-4 {
+    padding: 0.4rem 0.3rem !important;
+  }
+  .p-6 {
+    padding: 1rem !important;
+  }
+  
+  /* Flex Layout direction overrides */
+  .grid-cols-1.lg\:grid-cols-4 {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 1.25rem !important;
+  }
+  
+  .lg\:col-span-3 {
+    width: 100% !important;
+  }
+  
+  /* Release sticky headers/sidebars to scroll naturally on mobile */
+  .glass-panel.sticky {
+    position: static !important;
+  }
+
+  /* Titles and general typography */
+  h1 {
+    font-size: 1.15rem !important;
+  }
+  h2 {
+    font-size: 1rem !important;
+  }
+  h3 {
+    font-size: 0.95rem !important;
+  }
+  
+  /* Segmented control buttons fit nicely */
+  .segment-btn {
+    padding: 6px 10px !important;
+    font-size: 0.75rem !important;
+  }
+
+  /* Layout controls stack naturally on small screens */
+  .flex.items-center.gap-3\.5 {
+    width: 100% !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0.5rem !important;
+  }
+  .segmented-control {
+    width: 100% !important;
+  }
+
+  /* Adjust modals and inputs to be touch-friendly and fill viewport width */
+  .apple-modal-overlay {
+    padding: 1rem !important;
+  }
+  
+  /* Prevent horizontal screen scrolling */
+  body {
+    overflow-x: hidden;
+  }
+
+  /* Mobile landscape prompt styling */
+  .mobile-landscape-tip {
+    display: flex !important;
+    align-items: center;
+    gap: 0.5rem;
+    background-color: rgba(0, 113, 227, 0.05);
+    border: 1px solid rgba(0, 113, 227, 0.15);
+    border-radius: 12px;
+    padding: 10px 14px;
+    margin-bottom: 12px;
+    font-size: 10px;
+    font-weight: 600;
+    color: #0071e3;
+    line-height: 1.4;
+  }
+
+  /* Apple Bottom Sheet overrides for mobile devices */
+  .apple-bottom-sheet-overlay {
+    align-items: flex-end; /* Align at bottom of screen */
+    justify-content: center;
+    padding: 0 !important;
+  }
+
+  .apple-bottom-sheet {
+    border-radius: 32px 32px 0 0;
+    border-bottom: none;
+    border-left: none;
+    border-right: none;
+    max-width: 100% !important;
+    padding: 1.25rem 1.5rem 2.5rem 1.5rem;
+    animation: slideUp 0.35s cubic-bezier(0.15, 1, 0.3, 1);
+    transform: translateY(0);
+  }
+
+  .bottom-sheet-handle {
+    display: block;
+    width: 36px;
+    height: 5px;
+    background-color: rgba(60, 60, 67, 0.18);
+    border-radius: 2.5px;
+    margin: -6px auto 14px auto;
+  }
+
+  @keyframes slideUp {
+    from {
+      transform: translateY(100%);
+    }
+    to {
+      transform: translateY(0);
+    }
+  }
+}

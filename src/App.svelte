@@ -29,13 +29,13 @@
 
   // 初期メンバーマスタ
   const INITIAL_MEMBERS = [
-    { id: 1, name: "佐藤", role: "kitchen", roles: ["kitchen"], status: "regular", roleName: "キッチン", statusName: "通常", color: "#ff7043", emoji: "👨‍🍳" },
-    { id: 2, name: "鈴木", role: "kitchen", roles: ["kitchen", "hall"], status: "regular", roleName: "キッチン/ホール", statusName: "通常", color: "#ff7043", emoji: "👨‍🍳" },
-    { id: 3, name: "高橋", role: "hall", roles: ["kitchen", "hall"], status: "regular", roleName: "キッチン/ホール", statusName: "通常", color: "#ffb300", emoji: "👩‍💼" },
-    { id: 4, name: "田中", role: "hall", roles: ["hall"], status: "regular", roleName: "ホール", statusName: "通常", color: "#ffb300", emoji: "🧑‍💻" },
-    { id: 5, name: "渡辺", role: "hall", roles: ["hall"], status: "regular", roleName: "ホール", statusName: "通常", color: "#ffb300", emoji: "👱‍♀️" },
-    { id: 6, name: "伊藤", role: "kitchen", roles: ["kitchen"], status: "trainee", roleName: "キッチン", statusName: "研修", color: "#ff2a7a", emoji: "👶" },
-    { id: 7, name: "山本", role: "hall", roles: ["hall"], status: "trainee", roleName: "ホール", statusName: "研修", color: "#ff2a7a", emoji: "🧒" }
+    { id: 1, name: "佐藤", role: "kitchen", roles: ["kitchen"], status: "regular", roleName: "キッチン", statusName: "通常", color: "#ff7043", emoji: "👨‍🍳", targetDays: 10 },
+    { id: 2, name: "鈴木", role: "kitchen", roles: ["kitchen", "hall"], status: "regular", roleName: "キッチン/ホール", statusName: "通常", color: "#ff7043", emoji: "👨‍🍳", targetDays: 10 },
+    { id: 3, name: "高橋", role: "hall", roles: ["kitchen", "hall"], status: "regular", roleName: "キッチン/ホール", statusName: "通常", color: "#ffb300", emoji: "👩‍💼", targetDays: 10 },
+    { id: 4, name: "田中", role: "hall", roles: ["hall"], status: "regular", roleName: "ホール", statusName: "通常", color: "#ffb300", emoji: "🧑‍💻", targetDays: 10 },
+    { id: 5, name: "渡辺", role: "hall", roles: ["hall"], status: "regular", roleName: "ホール", statusName: "通常", color: "#ffb300", emoji: "👱‍♀️", targetDays: 10 },
+    { id: 6, name: "伊藤", role: "kitchen", roles: ["kitchen"], status: "trainee", roleName: "キッチン", statusName: "研修", color: "#ff2a7a", emoji: "👶", targetDays: 0 },
+    { id: 7, name: "山本", role: "hall", roles: ["hall"], status: "trainee", roleName: "ホール", statusName: "研修", color: "#ff2a7a", emoji: "🧒", targetDays: 0 }
   ];
 
   // 初期シフト（Python数理最適化の算出値）
@@ -57,7 +57,7 @@
     { date: "2026-06-07", member_id: 4, member_name: "田中", role: "hall", start_time: "17:30" },
     { date: "2026-06-07", member_id: 5, member_name: "渡辺", role: "hall", start_time: "17:30" },
     { date: "2026-06-07", member_id: 6, member_name: "伊藤", role: "kitchen", start_time: "17:00" },
-    // 6/8 臨時休業
+    // 6/8 シフト未配置
     { date: "2026-06-09", member_id: 1, member_name: "佐藤", role: "kitchen", start_time: "17:00" },
     { date: "2026-06-09", member_id: 5, member_name: "渡辺", role: "hall", start_time: "17:30" },
     // 6/10 水曜定休
@@ -73,74 +73,174 @@
     { date: "2026-06-15", member_id: 3, member_name: "高橋", role: "hall", start_time: "17:30" }
   ];
 
-  // 6月の対象日付リスト (2026年6月1日〜6月30日) を動的に生成
-  const DATES = Array.from({ length: 30 }, (_, i) => {
-    const dayNum = i + 1;
-    const dateStr = `2026-06-${String(dayNum).padStart(2, '0')}`;
-    const dateObj = new Date(2026, 5, dayNum); // 5 = June (0-indexed)
-    const wNameList = ["日", "月", "火", "水", "木", "金", "土"];
-    const wName = wNameList[dateObj.getDay()];
-    const isWeekend = dateObj.getDay() === 0 || dateObj.getDay() === 6;
-    const isRegularClosed = dateObj.getDay() === 3; // 毎週水曜定休
-    const isSpecialClosed = dayNum === 8; // 6/8は特別な臨時休業日
+  // 月度ステート (デフォルト: 2026年6月 前半)
+  let currentPeriod = "2026-06-A";
+
+  // 日付リストを動的に生成するヘルパー関数 (前半: 1-15日, 後半: 16-末日)
+  function generateDates(periodStr) {
+    const parts = periodStr.split('-');
+    const year = Number(parts[0]);
+    const month = Number(parts[1]);
+    const half = parts[2]; // 'A' or 'B'
     
-    return {
-      dateStr,
-      day: `6/${String(dayNum).padStart(2, '0')}`,
-      wName,
-      isWeekend,
-      isRegularClosed,
-      ...(isSpecialClosed ? { isSpecialClosed: true, reason: "臨時休業" } : {}),
-      dayNum
-    };
-  });
+    const daysInMonth = new Date(year, month, 0).getDate();
+    let startDay = 1;
+    let endDay = daysInMonth;
+    
+    if (half === 'A') {
+      endDay = 15;
+    } else if (half === 'B') {
+      startDay = 16;
+    }
+    
+    const wNameList = ["日", "月", "火", "水", "木", "金", "土"];
+    const dates = [];
+    
+    for (let dayNum = startDay; dayNum <= endDay; dayNum++) {
+      const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+      const dateObj = new Date(year, month - 1, dayNum);
+      const wName = wNameList[dateObj.getDay()];
+      const isWeekend = dateObj.getDay() === 0 || dateObj.getDay() === 6;
+      const isRegularClosed = dateObj.getDay() === 3; // 毎週水曜定休
+      
+      dates.push({
+        dateStr,
+        day: `${month}/${String(dayNum).padStart(2, '0')}`,
+        wName,
+        isWeekend,
+        isRegularClosed,
+        dayNum
+      });
+    }
+    return dates;
+  }
+
+  // カレンダーグリッド用のセルを動的生成するヘルパー関数 (曜日を揃えて期間外を曇りガラスに)
+  function generateGridCells(periodStr) {
+    const parts = periodStr.split('-');
+    const year = Number(parts[0]);
+    const month = Number(parts[1]);
+    const half = parts[2]; // 'A' or 'B'
+    
+    const daysInMonth = new Date(year, month, 0).getDate();
+    let startDay = 1;
+    let endDay = daysInMonth;
+    
+    if (half === 'A') {
+      endDay = 15;
+    } else if (half === 'B') {
+      startDay = 16;
+    }
+    
+    const wNameList = ["日", "月", "火", "水", "木", "金", "土"];
+    const cells = [];
+    
+    // 1. 開始日の曜日を揃えるために、期間開始前の余白セルを追加 (曇りガラス)
+    const firstDateObj = new Date(year, month - 1, startDay);
+    const firstDayOfWeek = firstDateObj.getDay(); // 0 = 日曜日, 6 = 土曜日
+    
+    for (let i = firstDayOfWeek - 1; i >= 0; i--) {
+      const prevDateObj = new Date(year, month - 1, startDay - 1 - i);
+      const prevDayNum = prevDateObj.getDate();
+      const prevMonth = prevDateObj.getMonth() + 1;
+      const prevYear = prevDateObj.getFullYear();
+      const dateStr = `${prevYear}-${String(prevMonth).padStart(2, '0')}-${String(prevDayNum).padStart(2, '0')}`;
+      
+      cells.push({
+        dateStr,
+        day: `${prevMonth}/${String(prevDayNum).padStart(2, '0')}`,
+        wName: wNameList[prevDateObj.getDay()],
+        isWeekend: prevDateObj.getDay() === 0 || prevDateObj.getDay() === 6,
+        isRegularClosed: prevDateObj.getDay() === 3,
+        isOtherMonth: true, // 他の期間（非アクティブセル）
+        dayNum: prevDayNum
+      });
+    }
+    
+    // 2. 当該期間の日付セルを追加
+    for (let dayNum = startDay; dayNum <= endDay; dayNum++) {
+      const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(dayNum).padStart(2, '0')}`;
+      const dateObj = new Date(year, month - 1, dayNum);
+      cells.push({
+        dateStr,
+        day: `${month}/${String(dayNum).padStart(2, '0')}`,
+        wName: wNameList[dateObj.getDay()],
+        isWeekend: dateObj.getDay() === 0 || dateObj.getDay() === 6,
+        isRegularClosed: dateObj.getDay() === 3,
+        isOtherMonth: false,
+        dayNum
+      });
+    }
+    
+    // 3. グリッドを揃えるために、期間終了後の余白セルを追加 (曇りガラス、7の倍数)
+    const totalCellsNeeded = Math.ceil(cells.length / 7) * 7;
+    const nextDaysToAdd = totalCellsNeeded - cells.length;
+    for (let i = 1; i <= nextDaysToAdd; i++) {
+      const nextDateObj = new Date(year, month - 1, endDay + i);
+      const nextDayNum = nextDateObj.getDate();
+      const nextMonth = nextDateObj.getMonth() + 1;
+      const nextYear = nextDateObj.getFullYear();
+      const dateStr = `${nextYear}-${String(nextMonth).padStart(2, '0')}-${String(nextDayNum).padStart(2, '0')}`;
+      
+      cells.push({
+        dateStr,
+        day: `${nextMonth}/${String(nextDayNum).padStart(2, '0')}`,
+        wName: wNameList[nextDateObj.getDay()],
+        isWeekend: nextDateObj.getDay() === 0 || nextDateObj.getDay() === 6,
+        isRegularClosed: nextDateObj.getDay() === 3,
+        isOtherMonth: true, // 他の期間（非アクティブセル）
+        dayNum: nextDayNum
+      });
+    }
+    
+    return cells;
+  }
+
+  // スタッフ名の識別用の一文字（頭文字など）を取得するヘルパー関数
+  // 同時期のメンバーリスト内で頭文字の衝突を回避します
+  function getMemberInitial(name, membersList = []) {
+    if (!name) return "";
+    const firstChar = name.charAt(0);
+    const collisions = membersList.filter(m => m.name && m.name.charAt(0) === firstChar && m.name !== name);
+    if (collisions.length === 0) {
+      return firstChar;
+    }
+    if (name.length > 1) {
+      const lastChar = name.charAt(name.length - 1);
+      const lastCharCollisions = membersList.filter(m => m.name && m.name.charAt(m.name.length - 1) === lastChar && m.name !== name);
+      if (lastCharCollisions.length === 0) {
+        return lastChar;
+      }
+      return name.charAt(1);
+    }
+    return firstChar;
+  }
+
+  // リアクティブ変数として定義
+  $: DATES = generateDates(currentPeriod);
+  $: GRID_CELLS = generateGridCells(currentPeriod);
 
   // 日曜始まりのヘッダー定義
   const CALENDAR_HEADERS = ["日", "月", "火", "水", "木", "金", "土"];
-
-  // 35マスのカレンダーグリッド（5/31〜7/4）を生成
-  const GRID_CELLS = [
-    {
-      dateStr: "2026-05-31",
-      day: "5/31",
-      wName: "日",
-      isWeekend: true,
-      isRegularClosed: false,
-      isOtherMonth: true,
-      dayNum: 31
-    },
-    ...DATES,
-    ...Array.from({ length: 4 }, (_, i) => {
-      const dayNum = i + 1;
-      const dateStr = `2026-07-${String(dayNum).padStart(2, '0')}`;
-      const dateObj = new Date(2026, 6, dayNum); // 6 = July
-      const wNameList = ["日", "月", "火", "水", "木", "金", "土"];
-      const wName = wNameList[dateObj.getDay()];
-      return {
-        dateStr,
-        day: `7/${String(dayNum).padStart(2, '0')}`,
-        wName,
-        isWeekend: dateObj.getDay() === 0 || dateObj.getDay() === 6,
-        isRegularClosed: dateObj.getDay() === 3,
-        isOtherMonth: true,
-        dayNum
-      };
-    })
-  ];
 
   // アプリケーションステート
   let activeTab = 'calendar'; 
   let shifts = DEFAULT_SHIFTS;
   let members = INITIAL_MEMBERS;
-  let specialHolidays = ["2026-06-08"];
+  let specialHolidays = [];
+  let shiftStatus = 'draft'; // 'draft' (下書き) | 'published' (公開済み)
   let isGenerating = false;
   let toastMessage = null;
+  let activeQuickMenuDate = null; // iOS風臨時休業選択用クイックポップアップ状態
 
   // 提出保存・締め切り用の新規ステート
   let isSubmitting = false;
   let deadlineDate = "2026-05-30T23:59:59";
   let deadlineInput = "2026-05-30T23:59";
   let isLocked = false;
+  let isAutoSaving = false;
+  let hasPendingChanges = false;
+  let saveTimeout = null;
 
   $: isLocked = deadlineDate ? (new Date() > new Date(deadlineDate)) : false;
 
@@ -329,8 +429,8 @@
     }
   }
 
-  // ネオンハイライトギミック用 (画面A)
-  let highlightMemberId = 3;
+  // ネオンハイライトギミック用 (画面A) - ログインユーザー自身の出勤枠をハイライトします
+  $: highlightMemberId = currentUser ? currentUser.id : null;
 
   // 自分のシフトだけ表示フィルター
   let showMyShiftsOnly = false;
@@ -354,14 +454,38 @@
   // 特定スタッフの提出データをDBからロードして復元する関数
   async function loadStaffSubmissions(staffId) {
     try {
+      submitPattern = staffDefaultPatterns[staffId] || 'A';
       const res = await fetch('/api/submissions');
       if (res.ok) {
         const data = await res.json();
-        const mySub = data.find(sub => sub.staffId === Number(staffId) && sub.period === "2026-06");
+        const mySub = data.find(sub => sub.staffId === Number(staffId) && sub.period === currentPeriod);
         if (mySub && mySub.availabilities) {
           staffAvailabilities = mySub.availabilities;
+          if (mySub.submitPattern) {
+            submitPattern = mySub.submitPattern;
+          }
         } else {
-          staffAvailabilities = {};
+          // フォールバック: 2026-06-A や 2026-06-B が存在しない場合、月単位の 2026-06 などのデータから該当期間の日付希望を抽出
+          const baseMonth = currentPeriod.substring(0, 7); // e.g. "2026-06"
+          const monthSub = data.find(sub => sub.staffId === Number(staffId) && sub.period === baseMonth);
+          if (monthSub && monthSub.availabilities) {
+            const half = currentPeriod.substring(8); // "A" or "B"
+            const filteredAvail = {};
+            Object.keys(monthSub.availabilities).forEach(dateStr => {
+              const day = Number(dateStr.split('-')[2]);
+              if (half === 'A' && day <= 15) {
+                filteredAvail[dateStr] = monthSub.availabilities[dateStr];
+              } else if (half === 'B' && day >= 16) {
+                filteredAvail[dateStr] = monthSub.availabilities[dateStr];
+              }
+            });
+            staffAvailabilities = filteredAvail;
+            if (monthSub.submitPattern) {
+              submitPattern = monthSub.submitPattern;
+            }
+          } else {
+            staffAvailabilities = {};
+          }
         }
       }
     } catch (e) {
@@ -409,11 +533,25 @@
   }
 
   onMount(async () => {
+    // 0. マウント時にFirestoreから臨時休業データ、メンバー一覧、公開ステータスを取得
+    await fetchHolidays();
+    await fetchMembers();
+    await fetchShiftStatus(currentPeriod);
+
     // 1. ローカルストレージから既存のサインインセッションを復元
     const cachedUser = localStorage.getItem('currentUser');
     if (cachedUser) {
       try {
         currentUser = JSON.parse(cachedUser);
+        
+        // ローカルストレージ内の古いlineUserIdの自動同期クリーニング
+        const dbMember = members.find(m => m.id === currentUser.id);
+        if (dbMember && dbMember.lineUserId && currentUser.lineUserId !== dbMember.lineUserId) {
+          console.info(`[App] Syncing outdated lineUserId from ${currentUser.lineUserId} to ${dbMember.lineUserId}`);
+          currentUser.lineUserId = dbMember.lineUserId;
+          localStorage.setItem('currentUser', JSON.stringify(currentUser));
+        }
+
         // バックグラウンドでFCMトークンの自動確認・更新
         requestFcmToken(currentUser.lineUserId).catch(console.error);
         if (currentUser.id) {
@@ -478,14 +616,7 @@
     }
 
     // 既存の初期化処理
-    fetch('/assigned_shifts.json')
-      .then(res => res.json())
-      .then(data => {
-        if (data && data.length > 0) {
-          shifts = data;
-        }
-      })
-      .catch(() => {});
+    await loadShifts(currentPeriod);
 
     fetchDeadline();
 
@@ -532,10 +663,10 @@
     
     const totalCount = todayShifts.length;
     const requiredTotal = hasTrainee ? 3 : 2;
-    if (totalCount !== requiredTotal) {
+    if (totalCount < requiredTotal) {
       acc[dateStr] = { 
         isValid: false, 
-        message: hasTrainee ? "研修生がいる日は総勢3名必須" : "通常営業日は総勢2名必須" 
+        message: hasTrainee ? "研修生がいる日は総勢3名以上必須" : "通常営業日は総勢2名以上必須" 
       };
       return acc;
     }
@@ -555,10 +686,11 @@
 
   $: memberAssignedStats = members.map(m => {
     const count = shifts.filter(s => s.member_id === m.id).length;
-    const target = m.status === 'trainee' ? '土日' : 10;
-    const isOk = m.status === 'trainee' ? (count > 0) : (count === 10);
-    const isUnder = m.status === 'regular' && count < 10;
-    const isOver = m.status === 'regular' && count > 10;
+    const targetDays = m.targetDays !== undefined ? (m.targetDays > 7 ? Math.floor(m.targetDays / 2) : m.targetDays) : 5;
+    const target = m.status === 'trainee' ? '土日' : targetDays;
+    const isOk = m.status === 'trainee' ? (count > 0) : (count === targetDays);
+    const isUnder = m.status === 'regular' && count < targetDays;
+    const isOver = m.status === 'regular' && count > targetDays;
     return {
       ...m,
       count,
@@ -576,7 +708,7 @@
     }, 3000);
   }
 
-  function handleAddStaff(dateStr, memberIdRole) {
+  async function handleAddStaff(dateStr, memberIdRole) {
     // memberIdRole can be "memberId:role" or just "memberId"
     const parts = String(memberIdRole).split(':');
     const memberId = Number(parts[0]);
@@ -596,29 +728,193 @@
     }
     
     const start = role === 'kitchen' ? '17:00' : '17:30';
-    shifts = [...shifts, {
+    const updatedShifts = [...shifts, {
       date: dateStr,
       member_id: member.id,
       member_name: member.name,
       role: role,
       start_time: start
     }];
+    shifts = updatedShifts;
+    await saveShiftsManually(updatedShifts);
   }
 
-  function handleRemoveStaff(dateStr, memberId, role) {
+  async function handleRemoveStaff(dateStr, memberId, role) {
+    let updatedShifts;
     if (role) {
-      shifts = shifts.filter(s => !(s.date === dateStr && s.member_id === memberId && s.role === role));
+      updatedShifts = shifts.filter(s => !(s.date === dateStr && s.member_id === memberId && s.role === role));
     } else {
-      shifts = shifts.filter(s => !(s.date === dateStr && s.member_id === memberId));
+      updatedShifts = shifts.filter(s => !(s.date === dateStr && s.member_id === memberId));
+    }
+    shifts = updatedShifts;
+    await saveShiftsManually(updatedShifts);
+  }
+
+  async function fetchMembers() {
+    try {
+      const res = await fetch('/api/members');
+      if (res.ok) {
+        members = await res.json();
+      }
+    } catch (e) {
+      console.error('[App] Failed to load members:', e);
     }
   }
 
-  function toggleSpecialHoliday(dateStr) {
-    if (specialHolidays.includes(dateStr)) {
-      specialHolidays = specialHolidays.filter(d => d !== dateStr);
-    } else {
-      specialHolidays = [...specialHolidays, dateStr];
-      shifts = shifts.filter(s => s.date !== dateStr);
+  async function saveShiftsManually(currentShifts) {
+    try {
+      const res = await fetch('/api/shifts/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shifts: currentShifts, period: currentPeriod })
+      });
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+      console.info('[App] Shift saved successfully.');
+    } catch (err) {
+      console.error('シフトの手動保存に失敗しました:', err);
+      triggerToast(`⚠️ シフトの自動保存に失敗しました: ${err.message}`);
+    }
+  }
+
+  async function loadShifts(targetPeriod = '2026-06') {
+    try {
+      const res = await fetch(`/api/shifts?period=${targetPeriod}`);
+      if (res.ok) {
+        shifts = await res.json();
+      } else {
+        shifts = [];
+      }
+    } catch (e) {
+      console.error('[App] Failed to load shifts:', e);
+      shifts = [];
+    }
+  }
+
+  async function handlePeriodChange() {
+    triggerToast(`📅 対象月を ${currentPeriod} に切り替えました。`);
+    // 1. 公開ステータスの再取得
+    await fetchShiftStatus(currentPeriod);
+    // 2. シフトデータのロード
+    await loadShifts(currentPeriod);
+    // 3. 一般スタッフの場合は自分の提出希望も再ロード
+    if (currentUser && currentUser.id) {
+      await loadStaffSubmissions(currentUser.id);
+    }
+  }
+
+  async function updateMemberTargetDays(memberId, days) {
+    try {
+      const res = await fetch('/api/members/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: memberId, targetDays: Number(days) })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        // ローカルの members 配列を更新
+        members = members.map(m => {
+          if (m.id === memberId) {
+            return { ...m, targetDays: Number(days) };
+          }
+          return m;
+        });
+        triggerToast(`🎯 ${members.find(m => m.id === memberId)?.name}さんの目標出勤日数を ${days} 日に更新しました。`);
+      } else {
+        throw new Error(await res.text());
+      }
+    } catch (err) {
+      console.error('目標出勤日数の更新に失敗しました:', err);
+      triggerToast(`⚠️ 更新失敗: ${err.message}`);
+    }
+  }
+
+  async function fetchShiftStatus(targetPeriod = '2026-06') {
+    try {
+      const res = await fetch(`/api/shifts/status?period=${targetPeriod}`);
+      if (res.ok) {
+        const data = await res.json();
+        shiftStatus = data.status || 'draft';
+      }
+    } catch (e) {
+      console.error('[App] Failed to load shift status:', e);
+    }
+  }
+
+  async function publishShifts(targetPeriod = '2026-06') {
+    try {
+      const res = await fetch('/api/shifts/publish', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ period: targetPeriod })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        shiftStatus = data.status;
+        triggerToast("💚 シフトを確定公開し、LINE通知を送信しました！");
+      } else {
+        throw new Error(await res.text());
+      }
+    } catch (err) {
+      console.error('シフトの公開に失敗しました:', err);
+      triggerToast(`⚠️ シフト公開に失敗しました: ${err.message}`);
+    }
+  }
+
+  async function revertShiftsToDraft(targetPeriod = '2026-06') {
+    try {
+      const res = await fetch('/api/shifts/status', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ period: targetPeriod, status: 'draft' })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        shiftStatus = data.status;
+        triggerToast("✏️ シフトを下書き状態に戻しました。");
+      } else {
+        throw new Error(await res.text());
+      }
+    } catch (err) {
+      console.error('下書きへの変更に失敗しました:', err);
+      triggerToast(`⚠️ 変更に失敗しました: ${err.message}`);
+    }
+  }
+
+  async function fetchHolidays() {
+    try {
+      const res = await fetch('/api/holidays');
+      if (res.ok) {
+        specialHolidays = await res.json();
+      }
+    } catch (e) {
+      console.error('[App] Failed to load holidays:', e);
+    }
+  }
+
+  async function toggleSpecialHoliday(dateStr) {
+    try {
+      const res = await fetch('/api/holidays', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date: dateStr })
+      });
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+      const data = await res.json();
+      specialHolidays = data.holidays; // APIが返却する最新リストに更新
+      
+      if (data.isHoliday) {
+        // 臨時休業日に設定された場合、その日の既存アサインを消去
+        shifts = shifts.filter(s => s.date !== dateStr);
+        triggerToast(`🔴 ${dateStr} を臨時休業日に設定しました。`);
+      } else {
+        triggerToast(`🟢 ${dateStr} を通常営業に戻しました。`);
+      }
+    } catch (err) {
+      triggerToast(`⚠️ 休業設定エラー: ${err.message}`);
     }
   }
 
@@ -641,34 +937,67 @@
     }
   }
 
-  function handleReGenerate() {
+  async function handleReGenerate() {
     isGenerating = true;
-    setTimeout(() => {
-      fetch('/assigned_shifts.json')
-        .then(res => res.json())
-        .then(data => {
-          if (data && data.length > 0) {
-            shifts = data;
-          }
-        })
-        .catch(() => {
-          shifts = DEFAULT_SHIFTS;
-        });
-      specialHolidays = ["2026-06-08"];
+    triggerToast("⏳ AI自動シフト作成（Python数理最適化）を開始しました...");
+    try {
+      const res = await fetch('/api/shifts/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ period: currentPeriod })
+      });
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+      const data = await res.json();
+      if (data.shifts && data.shifts.length > 0) {
+        shifts = data.shifts;
+        // 最適化結果を取得した後に、再度臨時休業リストもリロードして表示整合性を保ちます
+        await fetchHolidays();
+        triggerToast(`✨ AI自動シフト作成が完了しました！ (${data.count}件のアサイン)`);
+      } else {
+        triggerToast("⚠️ 生成されたシフトデータが空です。");
+      }
+    } catch (err) {
+      triggerToast(`⚠️ シフト自動作成に失敗しました: ${err.message}`);
+      console.error(err);
+    } finally {
       isGenerating = false;
-      triggerToast("✨ AI自動シフト作成(Python)を完了しました。");
-    }, 2000);
+    }
   }
 
-  function handleBulkClosedSetting(wName) {
+  async function handleBulkClosedSetting(wName) {
     const targetDateStrs = DATES.filter(d => d.wName === wName).map(d => d.dateStr);
     const allHolidays = targetDateStrs.every(dStr => specialHolidays.includes(dStr));
 
     if (allHolidays) {
       specialHolidays = specialHolidays.filter(d => !targetDateStrs.includes(d));
+      // Firestoreから一括削除 (非同期)
+      for (const dStr of targetDateStrs) {
+        try {
+          await fetch('/api/holidays', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ date: dStr }) // すでに存在するので削除される
+          });
+        } catch (e) {}
+      }
+      triggerToast(`🟢 ${wName}曜日の一括休業を解除しました。`);
     } else {
+      const added = targetDateStrs.filter(d => !specialHolidays.includes(d));
       specialHolidays = Array.from(new Set([...specialHolidays, ...targetDateStrs]));
       shifts = shifts.filter(s => !targetDateStrs.includes(s.date));
+      // Firestoreに一括追加 (非同期)
+      for (const dStr of added) {
+        try {
+          await fetch('/api/holidays', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ date: dStr }) // 存在しないので追加される
+          });
+        } catch (e) {}
+      }
+      triggerToast(`🔴 ${wName}曜日を一括臨時休業に設定しました。`);
     }
     selectedBulkClosedDay = null;
   }
@@ -693,7 +1022,7 @@
     }
   }
 
-  function handleDrop(e, targetDate) {
+  async function handleDrop(e, targetDate) {
     e.preventDefault();
     dragOverDate = null;
     if (!draggingItem) return;
@@ -716,46 +1045,32 @@
     const filtered = shifts.filter(s => !(s.date === sourceDate && s.member_id === memberId && s.role === dragRole));
     const role = dragRole || member.role;
     const start = role === 'kitchen' ? '17:00' : '17:30';
-    shifts = [...filtered, {
+    const updatedShifts = [...filtered, {
       date: targetDate,
       member_id: member.id,
       member_name: member.name,
       role: role,
       start_time: start
     }];
+    shifts = updatedShifts;
     triggerToast(`🎮 ${member.name}さん(${role === 'kitchen' ? 'キッチン' : 'ホール'})のシフトを ${targetDate} へ移動しました。`);
+    await saveShiftsManually(updatedShifts);
   }
 
-  function handleToggleAvailability(dateStr) {
-    const currentVal = staffAvailabilities[dateStr] !== undefined 
-      ? staffAvailabilities[dateStr] 
-      : (submitPattern === 'A');
-
-    staffAvailabilities = {
-      ...staffAvailabilities,
-      [dateStr]: !currentVal
-    };
-  }
-
-  const WEEKDAY_NAMES = CALENDAR_HEADERS;
-
-  async function handleStaffSubmit() {
-    if (isSubmitting) return;
-    if (isLocked) {
-      triggerToast("🔒 提出締め切り日時を過ぎているため、スケジュール希望は提出できません。");
-      return;
-    }
-
+  async function autoSaveSubmission(updatedAvailabilities) {
+    if (isLocked) return;
     const m = members.find(mem => mem.id === selectedStaffId);
     if (!m) return;
 
-    isSubmitting = true;
+    isAutoSaving = true;
+    hasPendingChanges = true;
 
     const payload = {
       staffId: m.id,
-      period: "2026-06",
-      availabilities: staffAvailabilities,
-      lineUserId: currentUser ? currentUser.lineUserId : `U06c755lineUser_${m.id}`,
+      period: currentPeriod,
+      availabilities: updatedAvailabilities,
+      submitPattern: submitPattern,
+      lineUserId: currentUser ? currentUser.lineUserId : (m.lineUserId || `U06c755lineUser_${m.id}`),
       submittedAt: new Date().toISOString()
     };
 
@@ -771,23 +1086,55 @@
       }
 
       const data = await res.json();
-      const targetDates = DATES.filter(d => {
-        if (d.isRegularClosed) return false;
-        const isAvail = staffAvailabilities[d.dateStr] !== undefined 
-          ? staffAvailabilities[d.dateStr] 
-          : (submitPattern === 'A');
-        return submitPattern === 'A' ? !isAvail : isAvail;
-      });
-      const count = targetDates.length;
-      const label = submitPattern === 'A' ? '休み希望' : '出勤可能日';
-
-      triggerToast(`📢 ${m.name}さんの${label} (${count}日分) をシステムへ送信・安全に保存しました！`);
+      
+      // もし競合シフトが自動削除されて更新された場合、フロントエンドのシフトデータも最新にリロード
+      if (data.shiftsUpdated) {
+        await loadShifts(currentPeriod);
+        triggerToast(`🔄 希望変更に伴い、既存の競合シフトを自動削除しました。`);
+      }
+      
+      hasPendingChanges = false;
     } catch (err) {
-      triggerToast(`⚠️ 送信失敗: ${err.message}`);
+      console.error(err);
+      triggerToast(`⚠️ 自動保存に失敗しました: ${err.message}`);
     } finally {
-      isSubmitting = false;
+      isAutoSaving = false;
     }
   }
+
+  function debouncedAutoSave(updatedAvailabilities) {
+    if (isLocked) return;
+    isAutoSaving = true;
+    hasPendingChanges = true;
+    if (saveTimeout) clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(async () => {
+      await autoSaveSubmission(updatedAvailabilities);
+    }, 500);
+  }
+
+  async function handlePatternSwitch(newPattern) {
+    if (isLocked) return;
+    submitPattern = newPattern;
+    staffAvailabilities = {};
+    if (saveTimeout) clearTimeout(saveTimeout);
+    await autoSaveSubmission({});
+  }
+
+  function handleToggleAvailability(dateStr) {
+    if (isLocked) return;
+    const currentVal = staffAvailabilities[dateStr] !== undefined 
+      ? staffAvailabilities[dateStr] 
+      : (submitPattern === 'A');
+
+    const updated = {
+      ...staffAvailabilities,
+      [dateStr]: !currentVal
+    };
+    staffAvailabilities = updated;
+    debouncedAutoSave(updated);
+  }
+
+  const WEEKDAY_NAMES = CALENDAR_HEADERS;
 </script>
 
 <div class="pb-16 text-slate-800 font-sans select-none selection:bg-[#0071e3]/20">
@@ -867,11 +1214,26 @@
   <!-- Apple Store風セグメントヘッダー -->
   <header class="py-4 border-b border-slate-200 sticky top-0 z-40 bg-white/90 backdrop-blur-md shadow-sm">
     <div class="max-w-7xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-4">
-      <div class="flex items-center gap-2.5">
-        <div class="w-2.5 h-2.5 rounded-full bg-[#0071e3] shadow-[0_0_10px_rgba(0,113,227,0.5)]"></div>
-        <div>
-          <h1 class="text-base font-black tracking-tight text-slate-900 uppercase">桃牛苑 シフト管理</h1>
+      <div class="flex items-center gap-4">
+        <div class="flex items-center gap-2.5">
+          <div class="w-2.5 h-2.5 rounded-full bg-[#0071e3] shadow-[0_0_10px_rgba(0,113,227,0.5)]"></div>
+          <div>
+            <h1 class="text-base font-black tracking-tight text-slate-900 uppercase">桃牛苑 シフト管理</h1>
+          </div>
         </div>
+        
+        <select 
+          bind:value={currentPeriod} 
+          on:change={handlePeriodChange}
+          class="bg-slate-100 hover:bg-slate-200 border-0 text-xs font-bold text-slate-700 px-3 py-1.5 rounded-xl outline-none transition-colors cursor-pointer shadow-sm"
+        >
+          <option value="2026-06-A">2026年6月 前半 (1日〜15日) </option>
+          <option value="2026-06-B">2026年6月 後半 (16日〜末日)</option>
+          <option value="2026-07-A">2026年7月 前半 (1日〜15日)</option>
+          <option value="2026-07-B">2026年7月 後半 (16日〜末日)</option>
+          <option value="2026-08-A">2026年8月 前半 (1日〜15日)</option>
+          <option value="2026-08-B">2026年8月 後半 (16日〜末日)</option>
+        </select>
       </div>
 
       <!-- スタイリッシュセグメントタブ ＆ LINEユーザープロフィール -->
@@ -881,19 +1243,19 @@
             on:click={() => activeTab = 'calendar'}
             class="segment-btn {activeTab === 'calendar' ? 'active' : ''}"
           >
-            シフト表・カレンダー
+            シフト表<span class="hidden-mobile">・カレンダー</span>
           </button>
           <button
             on:click={() => activeTab = 'submissions'}
             class="segment-btn {activeTab === 'submissions' ? 'active' : ''}"
           >
-            スケジュール希望提出
+            希望提出
           </button>
           <button
             on:click={() => activeTab = 'manager'}
             class="segment-btn {activeTab === 'manager' ? 'active' : ''}"
           >
-            管理者ダッシュボード
+            管理者<span class="hidden-mobile">設定</span>
           </button>
         </div>
 
@@ -1096,6 +1458,34 @@
                     ※LINEプラットフォームの認可を受けたセキュアなログインを行います。<br />
                     初めての方は、ログイン後に「お名前・役割・区分」のプロフィール自律登録を行います。
                   </p>
+
+                  <!-- 模擬ログインシミュレーター (ローカル開発・動作検証用) -->
+                  <div class="mt-6 pt-6 border-t border-slate-100 w-full space-y-3">
+                    <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest block text-left">
+                      🛠️ 開発用シミュレーター (ワンクリック模擬サインイン)
+                    </span>
+                    <div class="flex gap-2 w-full">
+                      <select 
+                        bind:value={loginSimulateStaffId}
+                        class="flex-1 bg-slate-50 border border-slate-200 text-xs font-semibold rounded-xl px-3.5 py-2.5 text-slate-700 focus:outline-none focus:border-[#0071e3] cursor-pointer"
+                      >
+                        {#each members as m}
+                          <option value={m.id}>{m.emoji} {m.name} さん ({m.status === 'trainee' ? '研修生' : m.roleName || (m.roles?.includes('kitchen') ? 'キッチン' : 'ホール')})</option>
+                        {/each}
+                      </select>
+                      
+                      <button 
+                        type="button"
+                        on:click={handleLineLoginSimulation}
+                        class="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold rounded-xl transition-all active:scale-[0.98] whitespace-nowrap cursor-pointer"
+                      >
+                        模擬ログイン
+                      </button>
+                    </div>
+                    <p class="text-[9px] text-slate-400 text-left font-medium leading-relaxed">
+                      💡 開発検証用: 任意のスタッフになり代わってスケジュール希望の提出や、佐藤/鈴木さん（管理者）となってAIシフト自動生成を実行できます。
+                    </p>
+                  </div>
                 {/if}
               </div>
             {/if}
@@ -1109,9 +1499,29 @@
     <!-- ========================================================================= -->
     {#if activeTab === 'calendar'}
       <div class="space-y-6" in:fade={{ duration: 150 }}>
-        
-        <!-- スタッフフィルター (ネオンハイライトトリガー) -->
-        <div class="glass-panel p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white">
+        {#if (!currentUser || !currentUser.isAdmin) && shiftStatus === 'draft'}
+          <!-- 一般スタッフ向け「下書き・調整中」マスク (Apple風極上グラスモーフィズム) -->
+          <div class="glass-panel min-h-[60vh] flex flex-col items-center justify-center text-center p-8 bg-white border border-slate-200/50 relative overflow-hidden space-y-6 rounded-3xl" in:fade={{ duration: 150 }}>
+            <div class="w-16 h-16 rounded-full bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-500 text-3xl shadow-sm animate-pulse mx-auto select-none">
+              ⏰
+            </div>
+            <div class="space-y-2 max-w-sm mx-auto">
+              <h3 class="text-base font-extrabold text-slate-900 tracking-tight">ただいま店長がシフト調整中です</h3>
+              <p class="text-xs text-slate-400 font-semibold leading-relaxed">
+                現在、店長が来月のシフト表をパズル調整しています。<br />
+                確定し、公開されるとLINEグループに通知が届きます。今しばらくお待ちください 
+              </p>
+            </div>
+          </div>
+        {:else}
+          <!-- スマホ専用 横画面回転ガイド案内 -->
+          <div class="mobile-landscape-tip flex items-center gap-2">
+            <span>💡</span>
+            <span>スマホを横向き（ランドスケープ）に回転させると、カレンダー全体がより広く見やすくなります。</span>
+          </div>
+
+          <!-- スタッフフィルター (ネオンハイライトトリガー) -->
+          <div class="glass-panel p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white">
           <div>
             <h2 class="text-sm font-bold text-slate-900 tracking-tight flex items-center gap-1.5">
               <Sparkles class="w-4 h-4 text-[#0071e3]" />
@@ -1139,16 +1549,6 @@
               </svg>
               {showMyShiftsOnly ? '自分だけ表示中' : '自分だけ表示'}
             </button>
-
-            <!-- ハイライト選択 -->
-            <select 
-              bind:value={highlightMemberId}
-              class="bg-slate-50 border border-slate-200 text-xs font-semibold rounded-full px-4 py-2.5 text-slate-700 focus:outline-none focus:border-[#0071e3] cursor-pointer"
-            >
-              {#each members as m}
-                <option value={m.id}>{m.emoji} {m.name} さん</option>
-              {/each}
-            </select>
           </div>
         </div>
 
@@ -1175,11 +1575,21 @@
                   ? allShifts.filter(s => s.member_id === currentUser.id)
                   : allShifts}
 
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
                 <div 
-                  class="glass-panel p-4 min-h-[160px] flex flex-col justify-between relative bg-white {
+                  on:click={() => {
+                    if (d.isOtherMonth) return;
+                    if (isRegularClosed) {
+                      triggerToast("毎週水曜日は店舗定休日です。");
+                      return;
+                    }
+                    selectedEditDate = d.dateStr;
+                  }}
+                  class="glass-panel p-4 min-h-[160px] flex flex-col justify-between relative bg-white cursor-pointer {
                     d.isOtherMonth ? 'other-month-cell' : ''
                   } {
-                    isClosed && !d.isOtherMonth ? 'opacity-40 bg-slate-50 border-dashed shadow-none cursor-default' : ''
+                    isClosed && !d.isOtherMonth ? 'opacity-40 bg-slate-50 border-dashed shadow-none cursor-pointer' : ''
                   }"
                 >
                   <!-- 上部: 日付タイポグラフィ -->
@@ -1214,10 +1624,16 @@
                               isTrainee ? 'trainee-pill' : ''
                             } {
                               isHighlighted ? 'neon-highlight' : ''
-                            }"
+                            } flex items-center justify-center gap-0.5 text-[11px] font-extrabold px-1.5 py-0.5 rounded-md"
                           >
-                            <span class="font-bold truncate">{isTrainee ? '🔰(研) ' : ''}{s.member_name}</span>
-                            <span class="text-[8px] opacity-75 font-mono ml-2 shrink-0">{s.start_time}</span>
+                            <span class="truncate">{getMemberInitial(s.member_name, members)}</span>
+                            <span class="text-[9px] scale-90">{s.role === 'kitchen' ? '🍳' : '🛎️'}</span>
+                            {#if isTrainee}
+                              <span class="text-[9px] scale-90">🔰</span>
+                            {/if}
+                            {#if s.isLocked}
+                              <span class="text-[8px] scale-90">🔒</span>
+                            {/if}
                           </div>
                         {/each}
                       {/if}
@@ -1237,7 +1653,7 @@
                   <Users class="w-4 h-4 text-[#0071e3]" />
                   給与・優先度アシスト
                 </h3>
-                <p class="text-[10px] text-slate-500 mt-1 leading-relaxed">当月の出勤状況と目標達成インジケーター（目標：月10日）をリアルタイムに集計します。</p>
+                <p class="text-[10px] text-slate-500 mt-1 leading-relaxed">当期間の出勤状況をリアルタイムに集計します。</p>
               </div>
 
               <!-- AI自動生成カード (スクリーンショット同様) -->
@@ -1276,48 +1692,30 @@
                     </div>
 
                     <div class="text-right">
-                      <span class="text-xs font-bold {
-                        m.isUnder ? 'text-amber-600' : m.isOver ? 'text-red-500' : 'text-emerald-600'
-                      }">
-                        {m.count}日
+                      <span class="text-xs font-bold text-slate-800">
+                        {m.count}日出勤
                       </span>
-                      <span class="text-[10px] text-slate-400">/ {m.target === '土日' ? '土日' : '10日'}</span>
-
-                      {#if m.status === 'regular'}
-                        <div class="flex justify-end mt-1">
-                          {#if m.isUnder}
-                            <span class="text-[8px] font-bold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded-full border border-amber-100">不足 ⚠️</span>
-                          {:else if m.isOver}
-                            <span class="text-[8px] font-bold text-red-500 bg-red-50 px-1.5 py-0.5 rounded-full border border-red-100">超過 ⚠️</span>
-                          {:else}
-                            <span class="text-[8px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full border border-emerald-100">充足 ●</span>
-                          {/if}
-                        </div>
-                      {:else}
-                        <div class="flex justify-end mt-1">
-                          {#if m.count === 0}
-                            <span class="text-[8px] font-bold text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded-full">未出勤</span>
-                          {:else}
-                            <span class="text-[8px] font-bold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded-full border border-emerald-100">出勤あり ●</span>
-                          {/if}
-                        </div>
-                      {/if}
                     </div>
                   </div>
                 {/each}
               </div>
             </div>
           </div>
-
         </div>
-      </div>
-    {/if}
+      {/if}
+    </div>
+  {/if}
 
     <!-- ========================================================================= -->
     <!-- 【希望提出画面】スケジュール希望提出 (カレンダー形式タップ選択)              -->
     <!-- ========================================================================= -->
     {#if activeTab === 'submissions'}
       <div class="space-y-6" in:fade={{ duration: 150 }}>
+        <!-- スマホ専用 横画面回転ガイド案内 -->
+        <div class="mobile-landscape-tip flex items-center gap-2">
+          <span>💡</span>
+          <span>スマホを横向き（ランドスケープ）に回転させると、希望カレンダー全体がより広く見やすくなります。</span>
+        </div>
         
         <div class="glass-panel p-5 flex flex-col sm:flex-row items-center justify-between gap-4 bg-white">
           <div>
@@ -1336,14 +1734,16 @@
 
             <div class="segmented-control w-[180px]">
               <button
-                on:click={() => { submitPattern = 'A'; staffAvailabilities = {}; }}
+                on:click={() => handlePatternSwitch('A')}
                 class="segment-btn {submitPattern === 'A' ? 'active' : ''}"
+                disabled={isLocked}
               >
                 休み希望
               </button>
               <button
-                on:click={() => { submitPattern = 'B'; staffAvailabilities = {}; }}
+                on:click={() => handlePatternSwitch('B')}
                 class="segment-btn {submitPattern === 'B' ? 'active' : ''}"
+                disabled={isLocked}
               >
                 可能日
               </button>
@@ -1427,33 +1827,38 @@
             </div>
 
             <div class="flex justify-center pt-4">
-              <div class="flex flex-col items-center justify-center w-full md:w-[420px] gap-3">
-                <button
-                  on:click={handleStaffSubmit}
-                  disabled={isSubmitting || isLocked}
-                  class="w-full btn-apple py-4 text-xs font-bold tracking-wider {
-                    isLocked ? 'bg-slate-200 text-slate-400 border border-slate-300 cursor-not-allowed shadow-none' : 'btn-primary'
-                  }"
-                >
-                  {#if isSubmitting}
-                    <span class="flex items-center justify-center gap-2">
-                      <span class="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                      保存中...
-                    </span>
-                  {:else if isLocked}
-                    🔒 提出締め切り超過（ロック中）
-                  {:else}
-                    希望スケジュールを提出・保存する
-                  {/if}
-                </button>
+              <div class="flex flex-col items-center justify-center w-full md:w-[450px] gap-3">
                 {#if isLocked}
-                  <span class="text-[10px] text-red-500 font-semibold text-center">
-                    ⚠️ シフトの提出締め切り日時 ({new Date(deadlineDate).toLocaleString()}) を過ぎているため、新規提出・更新はロックされています。
-                  </span>
+                  <!-- ロック時のプレミアム表示 -->
+                  <div class="w-full glass-panel p-5 border border-slate-200/60 bg-slate-50/60 rounded-3xl flex flex-col items-center gap-2 text-center shadow-sm">
+                    <span class="text-xs font-bold text-slate-500 flex items-center gap-1.5 animate-pulse">
+                      🔒 希望シフトの提出は締め切られました
+                    </span>
+                    <span class="text-[10px] text-slate-400 leading-relaxed font-semibold">
+                      提出締め切り日時 ({new Date(deadlineDate).toLocaleString()}) を過ぎたため、閲覧のみとなっております。変更は店長へ直接ご相談ください。
+                    </span>
+                  </div>
                 {:else}
-                  <span class="text-[10px] text-slate-400 font-semibold text-center">
-                    ⏰ 提出締め切り: {new Date(deadlineDate).toLocaleString()} まで（締め切り前なら何度でも更新可能）
-                  </span>
+                  <!-- 締め切り前のオートセーブステータスカード -->
+                  <div class="w-full glass-panel p-5 border border-slate-200/60 bg-white rounded-3xl flex flex-col items-center gap-2 text-center shadow-sm hover:shadow-md transition-all duration-300">
+                    <div class="flex items-center gap-2 text-xs font-bold text-slate-800">
+                      {#if isAutoSaving || hasPendingChanges}
+                        <span class="w-4 h-4 border-2 border-[#0071e3] border-t-transparent rounded-full animate-spin"></span>
+                        <span class="text-[#0071e3]">希望スケジュールを自動保存中...</span>
+                      {:else}
+                        <span class="relative flex h-2.5 w-2.5">
+                          <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                          <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                        </span>
+                        <span class="text-emerald-600">希望シフトはリアルタイムに自動保存されています </span>
+                      {/if}
+                    </div>
+                    <span class="text-[10px] text-slate-400 leading-relaxed font-semibold">
+                      カレンダーの日付をタップするだけで、店長側のデータベースに即座に反映されます。
+                      <br />
+                      ⏰ 提出締め切り: {new Date(deadlineDate).toLocaleString()} まで何回でも変更可能です。
+                    </span>
+                  </div>
                 {/if}
               </div>
             </div>
@@ -1507,6 +1912,12 @@
           </div>
         </div>
       {:else}
+        <!-- スマホ専用 横画面回転ガイド案内 -->
+        <div class="mobile-landscape-tip flex items-center gap-2">
+          <span>💡</span>
+          <span>スマホを横向き（ランドスケープ）に回転させると、調整ボードが広く使いやすくなります。</span>
+        </div>
+
         <div class="grid grid-cols-1 lg:grid-cols-4 gap-8" in:fade={{ duration: 150 }}>
         
         <!-- 左側: システムコントロール (1/4幅) -->
@@ -1551,6 +1962,38 @@
                 <Bell class="w-4 h-4 text-[#0071e3]" />
                 提出リマインドをLINE一斉配信
               </button>
+            </div>
+
+            <!-- 公開ステータスと確定公開ボタン -->
+            <div class="bg-slate-50 p-4 rounded-xl border border-slate-100 space-y-3">
+              <div class="flex items-center justify-between text-xs font-semibold">
+                <span class="text-slate-500">公開ステータス</span>
+                {#if shiftStatus === 'published'}
+                  <span class="flex items-center gap-1.5 font-bold text-emerald-600">
+                    <span class="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_8px_#34c759]"></span> 公開済み
+                  </span>
+                {:else}
+                  <span class="flex items-center gap-1.5 font-bold text-amber-500">
+                    <span class="w-2.5 h-2.5 rounded-full bg-amber-500 shadow-[0_0_8px_#ff9500]"></span> 下書き (調整中)
+                  </span>
+                {/if}
+              </div>
+
+              {#if shiftStatus === 'published'}
+                <button
+                  on:click={() => revertShiftsToDraft(currentPeriod)}
+                  class="w-full btn-apple btn-secondary py-2.5 text-[11px] font-bold text-slate-500 hover:text-slate-700"
+                >
+                  ✏️ シフトを下書きに戻す
+                </button>
+              {:else}
+                <button
+                  on:click={() => publishShifts(currentPeriod)}
+                  class="w-full btn-apple bg-emerald-500 hover:bg-emerald-600 active:bg-emerald-700 text-white py-3 text-xs font-bold flex items-center justify-center gap-1.5 shadow-md shadow-emerald-100"
+                >
+                  💚 シフトを確定してスタッフに公開 
+                </button>
+              {/if}
             </div>
 
             <!-- 一括設定 -->
@@ -1616,7 +2059,7 @@
                   on:click={() => selectedBulkClosedDay = w}
                   class="bg-slate-100 text-slate-500 hover:bg-[#ff3b30] hover:text-white font-extrabold text-[10px] py-2 rounded-xl border border-slate-200 hover:translate-y-[1px] text-center"
                 >
-                  {w} 一括
+                  {w}<span class="hidden-mobile">一括</span>
                 </button>
               {/each}
             </div>
@@ -1630,16 +2073,25 @@
                 {@const val = validationResults[d.dateStr] || { isValid: true }}
                 {@const isOver = dragOverDate === d.dateStr}
 
+                <!-- svelte-ignore a11y_click_events_have_key_events -->
+                <!-- svelte-ignore a11y_no_static_element_interactions -->
                 <div
                   on:dragover={(e) => !d.isOtherMonth && handleDragOver(e, d.dateStr)}
                   on:dragenter={() => !d.isOtherMonth && !isClosed && (dragOverDate = d.dateStr)}
                   on:dragleave={() => dragOverDate = null}
                   on:drop={(e) => !d.isOtherMonth && handleDrop(e, d.dateStr)}
-                  on:click={() => !d.isOtherMonth && (selectedEditDate = d.dateStr)}
-                  class="flat-cal-cell p-3.5 min-h-[145px] flex flex-col justify-between relative bg-white {
+                  on:click={() => {
+                    if (d.isOtherMonth) return;
+                    if (isRegularClosed) {
+                      triggerToast("毎週水曜日は店舗定休日です。");
+                      return;
+                    }
+                    selectedEditDate = d.dateStr;
+                  }}
+                  class="flat-cal-cell p-3.5 min-h-[145px] flex flex-col justify-between relative bg-white cursor-pointer {
                     d.isOtherMonth ? 'other-month-cell' : ''
                   } {
-                    isClosed && !d.isOtherMonth ? 'opacity-40 bg-slate-50 border-dashed shadow-none cursor-default' : ''
+                    isClosed && !d.isOtherMonth ? 'bg-red-50/20 border-red-100/50 opacity-60 shadow-none cursor-pointer' : 'cursor-pointer'
                   } {isOver ? 'bg-[#0071e3]/5 border-[#0071e3]/30' : ''} {
                     !val.isValid && !isClosed && !d.isOtherMonth ? 'border-red-500/20' : ''
                   }"
@@ -1650,9 +2102,11 @@
                         {d.dayNum} <span class="text-[9px] text-slate-400 font-bold">({d.wName})</span>
                       </span>
                       
-                      {#if !val.isValid && !isClosed && !d.isOtherMonth}
-                        <span class="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping"></span>
-                      {/if}
+                      <div class="flex items-center gap-1.5">
+                        {#if !val.isValid && !isClosed && !d.isOtherMonth}
+                          <span class="w-1.5 h-1.5 rounded-full bg-red-500 animate-ping"></span>
+                        {/if}
+                      </div>
                     </div>
 
                     <!-- ピルバッジリスト -->
@@ -1670,6 +2124,8 @@
                           {@const m = members.find(mem => mem.id === s.member_id)}
                           {@const isTrainee = m?.status === 'trainee'}
 
+                          <!-- svelte-ignore a11y_click_events_have_key_events -->
+                          <!-- svelte-ignore a11y_no_static_element_interactions -->
                           <div
                             draggable="true"
                             on:dragstart={(e) => handleDragStart(e, s.member_id, d.dateStr, s.role)}
@@ -1679,15 +2135,16 @@
                               s.role === 'kitchen' ? 'kitchen-pill' : 'hall-pill'
                             } {
                               isTrainee ? 'trainee-pill' : ''
-                            } text-[10px] py-1 px-2.5 rounded-full"
+                            } flex items-center justify-center gap-0.5 text-[11px] font-extrabold px-1.5 py-0.5 rounded-md"
                           >
-                            <span class="font-extrabold truncate">{isTrainee ? '🔰(研) ' : ''}{s.member_name}</span>
-                            <button
-                              on:click={() => handleRemoveStaff(d.dateStr, s.member_id, s.role)}
-                              class="opacity-60 hover:opacity-100 hover:text-red-600 p-0.5 ml-1.5"
-                            >
-                              <X class="w-2.5 h-2.5" />
-                            </button>
+                            <span>{getMemberInitial(s.member_name, members)}</span>
+                            <span class="text-[9px] scale-90">{s.role === 'kitchen' ? '🍳' : '🛎️'}</span>
+                            {#if isTrainee}
+                              <span class="text-[9px] scale-90">🔰</span>
+                            {/if}
+                            {#if s.isLocked}
+                              <span class="text-[8px] scale-90">🔒</span>
+                            {/if}
                           </div>
                         {/each}
                       {/if}
@@ -1712,7 +2169,7 @@
 
   <!-- モーダル: 曜日一括設定 -->
   {#if selectedBulkClosedDay}
-    <div class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-6" transition:fade={{ duration: 120 }}>
+    <div class="apple-modal-overlay" transition:fade={{ duration: 120 }}>
       <div class="glass-panel p-6 max-w-sm w-full animate-popup bg-white shadow-2xl relative text-center border border-slate-200">
         <button on:click={() => selectedBulkClosedDay = null} class="absolute top-4 right-4 text-slate-400 hover:text-slate-600">
           <X class="w-5 h-5" />
@@ -1735,117 +2192,204 @@
     </div>
   {/if}
 
-  <!-- モーダル: 日付詳細調整 -->
+  <!-- Apple風詳細ボトムシート (モーダル兼用) -->
   {#if selectedEditDate}
+    {@const dateParts = selectedEditDate.split('-')}
+    {@const monthNum = parseInt(dateParts[1])}
+    {@const dayNum = parseInt(dateParts[2])}
+    {@const isHoliday = specialHolidays.includes(selectedEditDate)}
+    {@const isRegularClosed = DATES.find(d => d.dateStr === selectedEditDate)?.isRegularClosed}
+    {@const dateShifts = shifts.filter(s => s.date === selectedEditDate)}
+
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div 
-      class="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-6" 
+      class="apple-bottom-sheet-overlay" 
       on:click={() => selectedEditDate = null}
-      transition:fade={{ duration: 120 }}
+      transition:fade={{ duration: 150 }}
     >
+      <!-- svelte-ignore a11y_click_events_have_key_events -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div 
-        class="glass-panel p-6 max-w-sm w-full bg-white shadow-2xl border border-slate-200 relative"
+        class="apple-bottom-sheet"
         on:click|stopPropagation
       >
-        <button on:click={() => selectedEditDate = null} class="absolute top-4 right-4 text-slate-400 hover:text-slate-600">
+        <div class="bottom-sheet-handle"></div>
+
+        <button 
+          on:click={() => selectedEditDate = null} 
+          class="absolute top-4 right-4 text-slate-400 hover:text-slate-600 focus:outline-none"
+          aria-label="閉じる"
+        >
           <X class="w-5 h-5" />
         </button>
 
-        <h4 class="text-sm font-bold text-slate-900 mb-4 tracking-tight">{selectedEditDate} シフト詳細調整</h4>
+        <h4 class="text-sm font-black text-slate-900 mb-4 tracking-tight">
+          {monthNum}月{dayNum}日 のシフト詳細
+        </h4>
 
-        <!-- 休業設定スイッチ -->
-        <div class="bg-slate-50 p-4 rounded-xl border border-slate-100 flex items-center justify-between mb-5 text-xs font-semibold">
-          <div>
-            <p class="font-bold text-slate-800">臨時休業日に設定</p>
-            <p class="text-[10px] text-slate-500 font-medium mt-0.5">自動生成の対象から除外されます。</p>
-          </div>
-          
-          <button 
-            type="button"
-            role="switch"
-            aria-label="臨時休業日に設定"
-            aria-checked={specialHolidays.includes(selectedEditDate)}
-            on:click={() => toggleSpecialHoliday(selectedEditDate)}
-            class="ios-switch {specialHolidays.includes(selectedEditDate) ? 'ios-switch-active' : ''}"
-          >
-            <div class="ios-switch-knob"></div>
-          </button>
-        </div>
-
-        {#if !specialHolidays.includes(selectedEditDate) && !DATES.find(d => d.dateStr === selectedEditDate)?.isRegularClosed}
-          <div class="space-y-4">
-            <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">出勤メンバー</p>
+        {#if currentUser?.isAdmin}
+          <!-- 管理者（店長）向け編集ビュー -->
+          <div class="bg-slate-50 p-4 rounded-xl border border-slate-100 flex items-center justify-between mb-5 text-xs font-semibold">
+            <div>
+              <p class="font-bold text-slate-800">臨時休業日に設定</p>
+              <p class="text-[10px] text-slate-500 font-medium mt-0.5">自動生成の対象から除外されます。</p>
+            </div>
             
-            <div class="space-y-2">
-              {#if shifts.filter(s => s.date === selectedEditDate).length === 0}
-                <p class="text-xs text-slate-500 py-3 text-center font-medium">アサインメンバーはいません。</p>
-              {:else}
-                {#each shifts.filter(s => s.date === selectedEditDate) as s}
-                  {@const m = members.find(mem => mem.id === s.member_id)}
-                  <div class="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-100">
-                    <div>
-                      <span class="text-xs font-bold text-slate-800">{m?.status === 'trainee' ? '🔰(研) ' : ''}{s.member_name}</span>
-                      <span class="text-[10px] text-slate-500 ml-2">({s.role === 'kitchen' ? '厨' : 'ホ'})</span>
-                    </div>
-
-                    <div class="flex items-center gap-2">
-                      <button
-                        on:click={() => {
-                          const nextTime = s.start_time === '17:00' ? '17:30' : '17:00';
-                          shifts = shifts.map(item => {
-                            if (item.date === selectedEditDate && item.member_id === s.member_id) {
-                              return { ...item, start_time: nextTime };
-                            }
-                            return item;
-                          });
-                        }}
-                        class="bg-white border border-slate-200 hover:bg-slate-50 text-[10px] font-bold px-2 py-1 rounded-lg text-slate-700"
-                      >
-                        ⏱️ {s.start_time}
-                      </button>
-                      
-                      <button
-                        on:click={() => handleRemoveStaff(selectedEditDate, s.member_id, s.role)}
-                        class="text-red-500 hover:bg-red-50 p-2 rounded-lg"
-                      >
-                        <Trash2 class="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-                {/each}
-              {/if}
-            </div>
-
-            <!-- 新規追加 -->
-            <div class="pt-3 border-t border-slate-100">
-              <label for="member-select" class="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1.5">スタッフの追加</label>
-              <select
-                id="member-select"
-                on:change={(e) => {
-                  if (e.target.value) {
-                    handleAddStaff(selectedEditDate, e.target.value);
-                    e.target.value = "";
-                  }
-                }}
-                class="w-full bg-slate-50 border border-slate-200 text-xs font-semibold rounded-xl px-3 py-2.5 text-slate-700 focus:outline-none focus:border-[#0071e3]"
-              >
-                <option value="">＋ メンバーの選択</option>
-                {#each members as m}
-                  {#each m.roles || [m.role] as r}
-                    <option value="{m.id}:{r}">{m.emoji} {m.name} — {r === 'kitchen' ? '🍳 キッチン' : '🛎 ホール'}{(m.roles?.length > 1) ? ' ✦' : ''}</option>
-                  {/each}
-                {/each}
-              </select>
-            </div>
+            <button 
+              type="button"
+              role="switch"
+              aria-label="臨時休業日に設定"
+              aria-checked={isHoliday}
+              on:click={() => toggleSpecialHoliday(selectedEditDate)}
+              class="ios-switch {isHoliday ? 'ios-switch-active' : ''}"
+            >
+              <div class="ios-switch-knob"></div>
+            </button>
           </div>
+
+          {#if !isHoliday && !isRegularClosed}
+            <div class="space-y-4">
+              <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">出勤メンバー</p>
+              
+              <div class="space-y-2 max-h-[220px] overflow-y-auto">
+                {#if dateShifts.length === 0}
+                  <p class="text-xs text-slate-500 py-6 text-center font-medium">アサインメンバーはいません。</p>
+                {:else}
+                  {#each dateShifts as s}
+                    {@const m = members.find(mem => mem.id === s.member_id)}
+                    {@const isTrainee = m?.status === 'trainee'}
+                    <div class="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-100 gap-2">
+                      <div class="min-w-0 flex-1">
+                        <div class="flex items-center gap-1.5 min-w-0">
+                          <span class="text-xs font-bold text-slate-800 truncate">{s.member_name}</span>
+                          {#if isTrainee}
+                            <span class="bg-amber-100 text-amber-800 text-[9px] px-1 rounded font-bold shrink-0">🔰</span>
+                          {/if}
+                        </div>
+                        <p class="text-[10px] text-slate-500 mt-0.5">
+                          {s.role === 'kitchen' ? '🍳 キッチン' : '🛎️ ホール'}
+                        </p>
+                      </div>
+
+                      <div class="flex items-center gap-1.5 shrink-0">
+                        <!-- 南京錠ロックトグル -->
+                        <button
+                          on:click={async () => {
+                            s.isLocked = !s.isLocked;
+                            shifts = [...shifts];
+                            await saveShiftsManually(shifts);
+                          }}
+                          class="bg-white border border-slate-200 hover:bg-slate-50 text-[10px] font-bold px-2 py-1.5 rounded-lg text-slate-700 flex items-center gap-0.5"
+                          title={s.isLocked ? "アサイン固定中 (クリックで解除)" : "アサインを固定する"}
+                        >
+                          <span>{s.isLocked ? '🔒' : '🔓'}</span>
+                          <span class="hidden sm:inline">{s.isLocked ? '固定中' : '固定'}</span>
+                        </button>
+
+                        <button
+                          on:click={async () => {
+                            const nextTime = s.start_time === '17:00' ? '17:30' : '17:00';
+                            const updatedShifts = shifts.map(item => {
+                              if (item.date === selectedEditDate && item.member_id === s.member_id) {
+                                return { ...item, start_time: nextTime };
+                              }
+                              return item;
+                            });
+                            shifts = updatedShifts;
+                            await saveShiftsManually(updatedShifts);
+                          }}
+                          class="bg-white border border-slate-200 hover:bg-slate-50 text-[10px] font-bold px-2 py-1.5 rounded-lg text-slate-700 font-mono"
+                        >
+                          ⏱️ {s.start_time}
+                        </button>
+                        
+                        <button
+                          on:click={() => handleRemoveStaff(selectedEditDate, s.member_id, s.role)}
+                          class="text-red-500 hover:bg-red-50 p-1.5 rounded-lg"
+                          aria-label="削除"
+                        >
+                          <Trash2 class="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  {/each}
+                {/if}
+              </div>
+
+              <!-- 新規追加 -->
+              <div class="pt-3 border-t border-slate-100">
+                <label for="member-select" class="text-[10px] font-bold text-slate-400 uppercase tracking-widest block mb-1.5">スタッフの追加</label>
+                <select
+                  id="member-select"
+                  on:change={(e) => {
+                    if (e.target.value) {
+                      handleAddStaff(selectedEditDate, e.target.value);
+                      e.target.value = "";
+                    }
+                  }}
+                  class="w-full bg-slate-50 border border-slate-200 text-xs font-semibold rounded-xl px-3 py-2.5 text-slate-700 focus:outline-none focus:border-[#0071e3]"
+                >
+                  <option value="">＋ メンバーの選択</option>
+                  {#each members as m}
+                    {#each m.roles || [m.role] as r}
+                      <option value="{m.id}:{r}">{m.emoji} {m.name} — {r === 'kitchen' ? '🍳 キッチン' : '🛎 ホール'}{(m.roles?.length > 1) ? ' ✦' : ''}</option>
+                    {/each}
+                  {/each}
+                </select>
+              </div>
+            </div>
+          {:else}
+            <p class="text-center py-5 text-xs font-bold text-slate-400">休業日のため配置不可です。</p>
+          {/if}
         {:else}
-          <p class="text-center py-5 text-xs font-bold text-slate-400">休業日のため配置不可です。</p>
+          <!-- 一般スタッフ向け閲覧ビュー -->
+          {#if isHoliday || isRegularClosed}
+            <p class="text-center py-8 text-sm font-bold text-slate-400">
+              本日（{monthNum}月{dayNum}日）は {isRegularClosed ? '定休日' : '臨時休業日'} です。
+            </p>
+          {:else}
+            <div class="space-y-4">
+              <p class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">出勤スタッフ</p>
+              
+              <div class="space-y-2 max-h-[300px] overflow-y-auto">
+                {#if dateShifts.length === 0}
+                  <p class="text-xs text-slate-500 py-8 text-center font-medium">出勤メンバーはいません。</p>
+                {:else}
+                  {#each dateShifts as s}
+                    {@const m = members.find(mem => mem.id === s.member_id)}
+                    {@const isTrainee = m?.status === 'trainee'}
+                    <div class="flex items-center justify-between bg-slate-50 p-3.5 rounded-xl border border-slate-100">
+                      <div class="flex items-center gap-2">
+                        <span class="text-xs font-black text-slate-800">
+                          {m?.emoji || "🧑‍🍳"} {s.member_name}
+                        </span>
+                        {#if isTrainee}
+                          <span class="bg-amber-100 text-amber-800 text-[9px] px-1.5 py-0.5 rounded font-bold">🔰 研修中</span>
+                        {/if}
+                      </div>
+
+                      <div class="flex items-center gap-3">
+                        <span class="text-xs font-semibold text-slate-500">
+                          {s.role === 'kitchen' ? '🍳 キッチン' : '🛎️ ホール'}
+                        </span>
+                        <span class="bg-[#0071e3]/10 text-[#0071e3] text-xs font-extrabold px-2.5 py-1 rounded-lg">
+                          ⏱️ {s.start_time}〜
+                        </span>
+                      </div>
+                    </div>
+                  {/each}
+                {/if}
+              </div>
+            </div>
+          {/if}
         {/if}
 
         <button 
           on:click={() => selectedEditDate = null}
           class="w-full btn-apple btn-primary py-3.5 text-xs mt-6"
         >
-          完了
+          閉じる
         </button>
       </div>
     </div>
@@ -1854,6 +2398,23 @@
 </div>
 
 <style>
+  /* Apple風極上シンプルポップアップ・モーダルオーバーレイ */
+  .apple-modal-overlay {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    background-color: rgba(15, 23, 42, 0.6) !important;
+    backdrop-filter: blur(8px) !important;
+    -webkit-backdrop-filter: blur(8px) !important;
+    z-index: 9999 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 1.5rem !important;
+  }
+
   .apple-setup-container {
     min-height: 70vh;
     background-color: #000000 !important;

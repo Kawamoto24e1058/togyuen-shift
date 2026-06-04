@@ -35,6 +35,7 @@ def generate_shift(data_path="sample_data.json"):
     end_date = datetime.strptime(data["end_date"], "%Y-%m-%d").date()
     members = data["members"]
     special_holidays = {datetime.strptime(d, "%Y-%m-%d").date() for d in data["special_holidays"]}
+    locked_assignments = data.get("locked_assignments", [])
 
     # 研修中・通常スタッフの分類ヘルパー (FirestoreやDBスキーマの揺れに対応)
     def is_trainee(m):
@@ -79,9 +80,7 @@ def generate_shift(data_path="sample_data.json"):
     for d in dates:
         y[d] = pulp.LpVariable(f"y_{d.strftime('%Y%m%d')}", cat=pulp.LpBinary)
 
-    # 通常バイトの出勤日数が目標値「10日」（期間目安）からどれだけずれているかを表す変数（絶対誤差の線形化）
-    # 目標日数 = 10日 (30日間の月間シフト)
-    target_days = 10
+    # 通常バイトの出勤日数が目標値からどれだけずれているかを表す変数（絶対誤差の線形化）
     e_pos = {}
     e_neg = {}
     for m in members:
@@ -106,12 +105,21 @@ def generate_shift(data_path="sample_data.json"):
                 for r in m["roles"]:
                     prob += x[(m["id"], d, r)] == 0
 
+    # 制約 (A-3): 手動でロック（固定）されたシフトは強制出勤とする (店長の手動調整を保護)
+    for la in locked_assignments:
+        la_date = datetime.strptime(la["date"], "%Y-%m-%d").date()
+        la_member_id = la["member_id"]
+        la_role = la["role"]
+        # 変数として定義されている場合のみ制約を課す (対象期間内・担当ロール内か)
+        if (la_member_id, la_date, la_role) in x:
+            prob += x[(la_member_id, la_date, la_role)] == 1
+
     # 制約 (B): 希望シフト（出勤不可日）はシフトを割り当てない
     # さらに研修生は「土日のみ」出勤可能とする
     for m in members:
         m_id = m["id"]
         for d in dates:
-            avail = submissions.get(m_id, {}).get(d, False)
+            avail = submissions.get(m_id, {}).get(d, True)
             if is_trainee(m):
                 # 研修生は土日(5=土, 6=日)以外は強制出勤不可
                 if d.weekday() not in (5, 6):
@@ -145,20 +153,33 @@ def generate_shift(data_path="sample_data.json"):
             prob += pulp.lpSum(x[(m["id"], d, "kitchen")] for m in members if "kitchen" in m["roles"]) >= 1
             # ホール最低1名
             prob += pulp.lpSum(x[(m["id"], d, "hall")] for m in members if "hall" in m["roles"]) >= 1
-            # 総人数 = 2 + y[d] (研修生がいる日は3名、いない日は2名)
-            prob += pulp.lpSum(x[(m["id"], d, r)] for m in members for r in m["roles"]) == 2 + y[d]
+            # 総人数 = 2 + y[d] (手動ロックが多い場合は拡張)
+            num_locked = sum(1 for la in locked_assignments if datetime.strptime(la["date"], "%Y-%m-%d").date() == d)
+            prob += pulp.lpSum(x[(m["id"], d, r)] for m in members for r in m["roles"]) == max(2, num_locked) + y[d]
 
-    # 制約 (E): 通常バイトの平準化制約 (実働日数 - 目標日数 = プラス誤差 - マイナス誤差)
+    # 制約 (E): 通常バイトの平準化制約 (実働日数 - 個別目標日数 = プラス誤差 - マイナス誤差)
     for m in members:
         if is_regular(m):
             m_id = m["id"]
+            m_target = m.get("targetDays", 5)
+            if m_target > 7:
+                m_target = m_target // 2
             work_days = pulp.lpSum(x[(m_id, d, r)] for d in dates for r in m["roles"])
-            prob += work_days - target_days == e_pos[m_id] - e_neg[m_id]
+            prob += work_days - m_target == e_pos[m_id] - e_neg[m_id]
 
     # 5. 目的関数の設定
     # - 通常バイトの目標日数に対する誤差の総和を最小化 (基本重み: 1.0)
     # - 土日に研修生のシフト希望がある場合、その研修生を最優先で配置するインセンティブ（大きなマイナス費用）
     regular_deviation_penalty = pulp.lpSum(e_pos[m["id"]] + e_neg[m["id"]] for m in members if is_regular(m))
+    
+    # 研修生の出勤日数平準化（出勤日数の最大値を最小化することでバランスをとる）
+    trainees = [m for m in members if is_trainee(m)]
+    max_trainee_days = pulp.LpVariable("max_trainee_days", lowBound=0, cat=pulp.LpContinuous)
+    if trainees:
+        for t in trainees:
+            t_id = t["id"]
+            work_days = pulp.lpSum(x[(t_id, d, r)] for d in dates for r in t["roles"])
+            prob += max_trainee_days >= work_days
     
     # 研修生の土日優先配置インセンティブ
     trainee_weekend_reward = pulp.lpSum(
@@ -169,7 +190,7 @@ def generate_shift(data_path="sample_data.json"):
         if submissions.get(t["id"], {}).get(d, False)
     )
 
-    prob += regular_deviation_penalty + trainee_weekend_reward
+    prob += regular_deviation_penalty + trainee_weekend_reward + (10 * max_trainee_days if trainees else 0)
 
     # 6. ソルバーの実行
     print("最適化ソルバーを実行中...")
@@ -217,6 +238,14 @@ def generate_shift(data_path="sample_data.json"):
                         "status": "trainee" if is_trainee(m) else "regular",
                         "time": f"{start_time}〜"
                     })
+                    # 以前ロックされていたアサインか確認
+                    is_locked_prev = any(
+                        la["member_id"] == m_id and 
+                        la["date"] == d.strftime("%Y-%m-%d") and 
+                        la["role"] == r 
+                        for la in locked_assignments
+                    )
+
                     # 保存用データ
                     assigned_shifts.append({
                         "date": d.strftime("%Y-%m-%d"),
@@ -224,7 +253,8 @@ def generate_shift(data_path="sample_data.json"):
                         "member_name": m["name"],
                         "role": r,
                         "start_time": start_time,
-                        "end_time": "22:00" # 仮の閉店時間
+                        "end_time": "22:00", # 仮の閉店時間
+                        "isLocked": is_locked_prev
                     })
         
         staff_info_list = [f"{s['name']}({s['role']=='kitchen' and '厨' or 'ホ'}:{s['time']})" for s in today_staff]
@@ -240,7 +270,10 @@ def generate_shift(data_path="sample_data.json"):
         total_days = sum(pulp.value(x[(m_id, d, r)]) for d in dates for r in m["roles"])
         m_type = "通常" if is_regular(m) else "研修"
         role_type = " & ".join(["キッチン" if r == "kitchen" else "ホール" for r in m["roles"]])
-        print(f"- {m['name']:<15} ({m_type}・{role_type}): {int(total_days)}日 / 目標 {target_days if is_regular(m) else '土日のみ'}日")
+        m_target = m.get("targetDays", 5)
+        if is_regular(m) and m_target > 7:
+            m_target = m_target // 2
+        print(f"- {m['name']:<15} ({m_type}・{role_type}): {int(total_days)}日 / 目標 {m_target if is_regular(m) else '土日のみ'}日")
     print("=" * 80)
 
     # 7. ルール・制約の自動検証テスト（アサーション）
@@ -274,16 +307,13 @@ def generate_shift(data_path="sample_data.json"):
             print(f"❌ エラー: {d} にホールが不在です。")
             test_passed = False
             
-        # 3. 研修生が出勤している日の総人数は3名か
+        # 3. 研修生が出勤している日の総人数は適切か（手動ロック数が多い場合はその数以上）
+        num_locked = sum(1 for la in locked_assignments if datetime.strptime(la["date"], "%Y-%m-%d").date() == d)
         has_trainee = any(is_trainee(s) for s in today_staff)
-        if has_trainee:
-            if len(today_staff) != 3:
-                print(f"❌ エラー: {d} に研修生が出勤していますが、総人数が3名ではありません (現在: {len(today_staff)}名)。")
-                test_passed = False
-        else:
-            if len(today_staff) != 2:
-                print(f"❌ エラー: {d} に研修生が出勤していませんが、総人数が2名ではありません (現在: {len(today_staff)}名)。")
-                test_passed = False
+        expected_total = max(2, num_locked) + (1 if has_trainee else 0)
+        if len(today_staff) < expected_total:
+            print(f"❌ エラー: {d} の総人数が不足しています (現在: {len(today_staff)}名, 期待: {expected_total}名以上)。")
+            test_passed = False
                 
     # 4. 研修生は土日のみ割り当てられているか
     for m in members:

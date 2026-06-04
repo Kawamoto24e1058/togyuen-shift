@@ -20,27 +20,26 @@ export default async function handler(req, res) {
       return res.status(400).send('必須パラメータ（code, staffId）が不足しています。');
     }
 
-    // 模擬 LINE ユーザー ID の一意生成
-    const lineUserId = `U06c755lineUser_${staffId}`;
-
     // Firestore からメンバーを検索、存在しなければシードデータを自動作成（開発支援用）
     const memberRef = db.collection('members').doc(String(staffId));
     const memberDoc = await memberRef.get();
     
     let memberData;
+    let lineUserId;
     if (!memberDoc.exists) {
       // 開発中の検証がスムーズに進むよう、メンバー未登録の場合はマスタデータで自動初期化する
       const staffNames = {
-        1: { name: "佐藤", role: "kitchen", roles: ["kitchen"], status: "regular", emoji: "👨‍🍳" },
-        2: { name: "鈴木", role: "kitchen", roles: ["kitchen", "hall"], status: "regular", emoji: "👨‍🍳" },
-        3: { name: "高橋", role: "hall", roles: ["kitchen", "hall"], status: "regular", emoji: "👩‍💼" },
-        4: { name: "田中", role: "hall", roles: ["hall"], status: "regular", emoji: "🧑‍💻" },
-        5: { name: "渡辺", role: "hall", roles: ["hall"], status: "regular", emoji: "👱‍♀️" },
-        6: { name: "伊藤", role: "kitchen", roles: ["kitchen"], status: "trainee", emoji: "👶" },
-        7: { name: "山本", role: "hall", roles: ["hall"], status: "trainee", emoji: "🧒" }
+        1: { name: "佐藤", role: "kitchen", roles: ["kitchen"], status: "regular", emoji: "👨‍🍳", lineUserId: "U_sato_1" },
+        2: { name: "鈴木", role: "kitchen", roles: ["kitchen", "hall"], status: "regular", emoji: "👨‍🍳", lineUserId: "U_suzuki_2" },
+        3: { name: "高橋", role: "hall", roles: ["kitchen", "hall"], status: "regular", emoji: "👩‍💼", lineUserId: "U_takahashi_3" },
+        4: { name: "田中", role: "hall", roles: ["hall"], status: "regular", emoji: "🧑‍💻", lineUserId: "U_tanaka_4" },
+        5: { name: "渡辺", role: "hall", roles: ["hall"], status: "regular", emoji: "👱‍♀️", lineUserId: "U_watanabe_5" },
+        6: { name: "伊藤", role: "kitchen", roles: ["kitchen"], status: "trainee", emoji: "👶", lineUserId: "U_ito_6" },
+        7: { name: "山本", role: "hall", roles: ["hall"], status: "trainee", emoji: "🧒", lineUserId: "U_yamamoto_7" }
       };
 
       const seed = staffNames[staffId] || { name: `スタッフ${staffId}`, role: "hall", roles: ["hall"], status: "regular", emoji: "🧑‍🍳" };
+      lineUserId = seed.lineUserId || `U06c755lineUser_${staffId}`;
       memberData = {
         ...seed,
         lineUserId: lineUserId, // 最初から模擬 LINE ID を結びつけ
@@ -50,8 +49,11 @@ export default async function handler(req, res) {
       console.info(`[Mock Auth] Created seed member in Firestore: ${memberData.name}`);
     } else {
       memberData = memberDoc.data();
-      // lineUserId が未登録の場合はバインドを自動補完
-      if (!memberData.lineUserId) {
+      // すでに登録済みの lineUserId があるならそれを使用
+      if (memberData.lineUserId) {
+        lineUserId = memberData.lineUserId;
+      } else {
+        lineUserId = `U06c755lineUser_${staffId}`;
         await memberRef.set({ lineUserId }, { merge: true });
         memberData.lineUserId = lineUserId;
       }
