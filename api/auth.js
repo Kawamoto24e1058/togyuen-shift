@@ -113,6 +113,8 @@ export default async function handler(req, res) {
         memberInfo = { id: doc.id, ...doc.data() };
       });
 
+      const isAdmin = memberInfo.isAdmin || false;
+
       const userRef = db.collection('users').doc(lineUserId);
       await userRef.set({
         lineUserId,
@@ -120,6 +122,7 @@ export default async function handler(req, res) {
         role: memberInfo.role || (memberInfo.roles ? memberInfo.roles[0] : 'hall'),
         roles: memberInfo.roles || [memberInfo.role || 'hall'],
         status: memberInfo.status || 'regular',
+        isAdmin,
         lastLoginAt: new Date().toISOString(),
       }, { merge: true });
 
@@ -133,6 +136,7 @@ export default async function handler(req, res) {
           role: memberInfo.role || (memberInfo.roles ? memberInfo.roles[0] : 'hall'),
           roles: memberInfo.roles || [memberInfo.role || 'hall'],
           status: memberInfo.status || 'regular',
+          isAdmin,
         }
       });
     } catch (err) {
@@ -244,6 +248,8 @@ export default async function handler(req, res) {
       });
       const newId = maxId + 1;
 
+      const isAdmin = newId === 1; // 最初に登録したユーザー(ID 1)を自動的に店長(管理者)とする
+
       const newMember = {
         id: newId,
         name: name.trim(),
@@ -251,12 +257,13 @@ export default async function handler(req, res) {
         roles: roles,
         status: status,
         lineUserId: lineUserId,
+        isAdmin: isAdmin,
         lineToken: `DUMMY_TOKEN_FOR_${newId}_${name.trim()}`,
         createdAt: new Date().toISOString()
       };
 
       await membersRef.doc(String(newId)).set(newMember);
-      console.info(`[API Register] Successfully created member in Firestore. Assigned ID: ${newId}`);
+      console.info(`[API Register] Successfully created member in Firestore. Assigned ID: ${newId}. Admin: ${isAdmin}`);
 
       const userRef = db.collection('users').doc(lineUserId);
       await userRef.set({
@@ -265,6 +272,7 @@ export default async function handler(req, res) {
         role: newMember.role,
         roles: newMember.roles,
         status: newMember.status,
+        isAdmin: isAdmin,
         lastLoginAt: new Date().toISOString(),
       }, { merge: true });
 
@@ -278,6 +286,7 @@ export default async function handler(req, res) {
           role: newMember.role,
           roles: newMember.roles,
           status: newMember.status,
+          isAdmin: isAdmin,
         }
       });
     } catch (err) {

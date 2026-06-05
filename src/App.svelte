@@ -370,7 +370,7 @@
         const registeredUser = {
           ...data.user,
           avatar: regRoles.includes("kitchen") ? "👨‍🍳" : "👩‍💼", // アイコン自動アサイン
-          isAdmin: data.user.id === 1 || data.user.id === 2, // 佐藤、鈴木さんを管理者とする
+          isAdmin: !!data.user.isAdmin,
         };
         currentUser = registeredUser;
 
@@ -598,7 +598,7 @@
               ...data.user,
               avatar:
                 members.find((m) => m.id === Number(data.user.id))?.emoji || "🧑‍🍳",
-              isAdmin: data.user.id === 1 || data.user.id === 2, // 佐藤、鈴木さんを管理者とする
+              isAdmin: !!data.user.isAdmin,
             };
             currentUser = loggedInUser;
             localStorage.setItem("currentUser", JSON.stringify(loggedInUser));
