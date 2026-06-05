@@ -1953,9 +1953,9 @@
                       </span>
                     </div>
                     <p
-                      class="text-[10px] text-slate-400 font-medium leading-relaxed"
+                      class="text-[10px] text-slate-500 font-medium leading-relaxed"
                     >
-                      水曜日定休日、通常バイト10日平準化、研修生土日限定のすべてのルールが満たされています。
+                      毎週水曜日の定休日、スタッフ別の目標出勤日数、および研修生の土日出勤の平準化ルールがすべて満たされています。
                     </p>
                   </div>
 
