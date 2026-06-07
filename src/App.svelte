@@ -280,6 +280,7 @@
 
   // PWA帰還（引き戻し）ネイティブアプリ化ステート＆ロジック
   let showPwaRedirectScreen = false;
+  let pwaLaunchUrl = "/";
   let isStandalone = typeof window !== "undefined" && (
     window.navigator.standalone || 
     window.matchMedia("(display-mode: standalone)").matches
@@ -704,7 +705,18 @@
           if (state && state.startsWith("pwa_")) {
             showPwaRedirectScreen = true;
             isAuthenticating = false;
-            triggerToast("🎉 LINE認証完了。PWAアプリへお戻りください。");
+            
+            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+            if (isIOS) {
+              pwaLaunchUrl = "webapp://" + window.location.host + "/";
+            } else {
+              pwaLaunchUrl = "/";
+            }
+            
+            triggerToast("🎉 LINE認証完了。PWAアプリへ引き戻します...");
+            setTimeout(() => {
+              window.location.href = pwaLaunchUrl;
+            }, 1000);
             return;
           }
 
@@ -1431,7 +1443,7 @@
         
         <div class="pt-6">
           <a
-            href="/"
+            href={pwaLaunchUrl}
             class="px-8 py-4 bg-white text-black font-extrabold rounded-2xl inline-block shadow-lg hover:bg-[#f5f5f7] active:scale-95 transition-all text-xs tracking-wider"
           >
             PWAアプリを開く
