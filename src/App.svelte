@@ -253,6 +253,97 @@
 
   $: isLocked = deadlineDate ? new Date() > new Date(deadlineDate) : false;
 
+  /** @type {any[]} */
+  let allSubmissions = [];
+
+  async function fetchSubmissions() {
+    try {
+      const res = await fetch("/api/submissions");
+      if (res.ok) {
+        allSubmissions = await res.json();
+      }
+    } catch (e) {
+      console.error("[App] Failed to load submissions:", e);
+    }
+  }
+
+  $: isAllShiftsValid = DATES.every(d => validationResults[d.dateStr]?.isValid !== false);
+  $: submittedStaffIds = new Set(
+    allSubmissions
+      .filter((sub) => sub.period === currentPeriod)
+      .map((sub) => Number(sub.staffId))
+  );
+  $: unsubmittedMembers = members.filter(
+    (m) => !submittedStaffIds.has(Number(m.id))
+  );
+  $: unsubmittedCount = unsubmittedMembers.length;
+
+  // PWA帰還（引き戻し）ネイティブアプリ化ステート＆ロジック
+  let showPwaRedirectScreen = false;
+  let isStandalone = typeof window !== "undefined" && (
+    window.navigator.standalone || 
+    window.matchMedia("(display-mode: standalone)").matches
+  );
+  let pwaSessionId = null;
+  /** @type {any} */
+  let pwaPollInterval = null;
+  let isWaitingForPwaLogin = false;
+
+  function cancelPwaLogin() {
+    if (pwaPollInterval) {
+      clearInterval(pwaPollInterval);
+      pwaPollInterval = null;
+    }
+    localStorage.removeItem("pwaSessionId");
+    pwaSessionId = null;
+    isWaitingForPwaLogin = false;
+    isAuthenticating = false;
+  }
+
+  /**
+   * @param {string} sessionId
+   */
+  function startPwaPoll(sessionId) {
+    if (!sessionId) return;
+    isWaitingForPwaLogin = true;
+    if (pwaPollInterval) clearInterval(pwaPollInterval);
+    
+    pwaPollInterval = setInterval(async () => {
+      try {
+        const res = await fetch(`/api/auth/pwa-status?pwaSessionId=${sessionId}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.authenticated) {
+            clearInterval(pwaPollInterval);
+            pwaPollInterval = null;
+            localStorage.removeItem("pwaSessionId");
+            pwaSessionId = null;
+            isWaitingForPwaLogin = false;
+            isAuthenticating = false;
+            
+            const userData = data.user;
+            if (userData.registered === false) {
+              unlinkedLineUserId = userData.lineUserId;
+              unlinkedDisplayName = userData.displayName;
+              regName = userData.displayName || "";
+              showRegistrationForm = true;
+              triggerToast("✨ 初回サインイン: プロフィール作成画面へ移行します。");
+            } else {
+              currentUser = userData;
+              localStorage.setItem("currentUser", JSON.stringify(userData));
+              triggerToast(`💚 LINEログイン成功: ${userData.name}さんとして認証されました。`);
+              selectedStaffId = userData.id;
+              await loadStaffSubmissions(userData.id);
+              requestFcmToken(userData.lineUserId).catch(console.error);
+            }
+          }
+        }
+      } catch (e) {
+        console.error("[PWA Poll] Error:", e);
+      }
+    }, 2000);
+  }
+
   // LINEログイン・ユーザーセッション用ステート
   /** @type {Member | null} */
   let currentUser = null;
@@ -294,7 +385,15 @@
     isAuthenticating = true;
     authErrorMessage = null;
     try {
-      const res = await fetch("/api/auth/line-url");
+      let url = "/api/auth/line-url";
+      if (isStandalone) {
+        pwaSessionId = "pwa_" + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+        localStorage.setItem("pwaSessionId", pwaSessionId);
+        url += `?pwaSessionId=${pwaSessionId}`;
+        startPwaPoll(pwaSessionId);
+      }
+      
+      const res = await fetch(url);
       if (!res.ok) {
         throw new Error(await res.text());
       }
@@ -537,6 +636,13 @@
       await fetchHolidays();
       await fetchMembers();
       await fetchShiftStatus(currentPeriod);
+      await fetchSubmissions();
+
+      // 0.5 PWAからのログイン待機セッションを復元
+      const savedPwaSessionId = localStorage.getItem("pwaSessionId");
+      if (savedPwaSessionId && isStandalone) {
+        startPwaPoll(savedPwaSessionId);
+      }
 
       // 1. ローカルストレージから既存のサインインセッションを復元
       const cachedUser = localStorage.getItem("currentUser");
@@ -576,6 +682,7 @@
       // 2. URLパラメータからLINE OAuth認証コード (code) の有無を確認
       const urlParams = new URLSearchParams(window.location.search);
       const code = urlParams.get("code");
+      const state = urlParams.get("state");
       if (code) {
         isAuthenticating = true;
         authErrorMessage = null;
@@ -585,7 +692,7 @@
           const res = await fetch("/api/auth/callback", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ code }),
+            body: JSON.stringify({ code, state }),
           });
 
           if (!res.ok) {
@@ -593,6 +700,14 @@
           }
 
           const data = await res.json();
+          
+          if (state && state.startsWith("pwa_")) {
+            showPwaRedirectScreen = true;
+            isAuthenticating = false;
+            triggerToast("🎉 LINE認証完了。PWAアプリへお戻りください。");
+            return;
+          }
+
           if (data.registered) {
             const loggedInUser = {
               ...data.user,
@@ -863,7 +978,9 @@
     await fetchShiftStatus(currentPeriod);
     // 2. シフトデータのロード
     await loadShifts(currentPeriod);
-    // 3. 一般スタッフの場合は自分の提出希望も再ロード
+    // 3. 提出状況の再取得
+    await fetchSubmissions();
+    // 4. 一般スタッフの場合は自分の提出希望も再ロード
     if (currentUser && currentUser.id) {
       await loadStaffSubmissions(currentUser.id);
     }
@@ -1001,6 +1118,8 @@
     try {
       const res = await fetch("/api/remind", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ period: currentPeriod }),
       });
       if (!res.ok) {
         throw new Error(await res.text());
@@ -1233,6 +1352,7 @@
         triggerToast(`🔄 希望変更に伴い、既存の競合シフトを自動削除しました。`);
       }
 
+      await fetchSubmissions();
       hasPendingChanges = false;
     } catch (error) {
       const err = /** @type {any} */ (error);
@@ -1291,6 +1411,40 @@
 <div
   class="pb-16 text-slate-800 font-sans select-none selection:bg-[#0071e3]/20"
 >
+  <!-- Safari PWA 引き戻し案内画面 -->
+  {#if showPwaRedirectScreen}
+    <div
+      class="fixed inset-0 bg-black z-[9999] flex flex-col items-center justify-center p-6 text-center text-white font-sans"
+    >
+      <div class="apple-setup-glow"></div>
+      <div class="max-w-sm space-y-6 animate-popup z-10">
+        <div
+          class="w-20 h-20 bg-[#06c755] rounded-3xl flex items-center justify-center mx-auto shadow-[0_4px_16px_rgba(6,199,85,0.3)] text-white text-4xl font-extrabold select-none"
+        >
+          L
+        </div>
+        <h2 class="text-2xl font-black tracking-tight">LINEログインが完了しました</h2>
+        <p class="text-xs text-[#86868b] leading-relaxed font-semibold">
+          ブラウザでの認証手続きが正常に完了しました。<br />
+          ホーム画面の『桃牛苑』アプリへお戻りください。自動的にログイン状態が引き継がれ、アプリが起動します。
+        </p>
+        
+        <div class="pt-6">
+          <a
+            href="/"
+            class="px-8 py-4 bg-white text-black font-extrabold rounded-2xl inline-block shadow-lg hover:bg-[#f5f5f7] active:scale-95 transition-all text-xs tracking-wider"
+          >
+            PWAアプリを開く
+          </a>
+        </div>
+        
+        <p class="text-[9px] text-[#48484a] font-medium leading-relaxed">
+          ※自動で戻らない場合は、スマートフォンのホーム画面から直接『桃牛苑』アプリのアイコンをタップして再開してください。
+        </p>
+      </div>
+    </div>
+  {/if}
+
   <!-- トースト -->
   {#if toastMessage}
     <div
@@ -1650,7 +1804,32 @@
               </p>
             </div>
 
-            {#if isAuthenticating}
+            {#if isWaitingForPwaLogin}
+              <!-- PWAログイン待機画面 -->
+              <div
+                class="w-full py-8 flex flex-col items-center justify-center space-y-6"
+              >
+                <div
+                  class="w-10 h-10 rounded-full border-3 border-slate-100 border-t-[#0071e3] animate-spin"
+                ></div>
+                <div class="space-y-2">
+                  <p class="text-xs font-bold text-slate-700">
+                    ブラウザでのLINEログイン完了を待っています...
+                  </p>
+                  <p class="text-[10px] text-slate-400 font-semibold leading-relaxed">
+                    ブラウザでの認証完了後、自動的にこのアプリにログインします。<br />
+                    完了したらホーム画面のこのアプリにお戻りください。
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  on:click={cancelPwaLogin}
+                  class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-[10px] font-bold text-slate-500 rounded-xl transition-all cursor-pointer"
+                >
+                  ログインをキャンセル
+                </button>
+              </div>
+            {:else if isAuthenticating}
               <!-- 認証中のローディング表示 -->
               <div
                 class="w-full py-12 flex flex-col items-center justify-center space-y-4"
@@ -2340,9 +2519,15 @@
                     <span
                       class="flex items-center gap-2 font-bold text-slate-700"
                     >
-                      <span
-                        class="w-2 h-2 rounded-full bg-[#34c759] shadow-[0_0_8px_#34c759]"
-                      ></span> 充足完了
+                      {#if isAllShiftsValid}
+                        <span
+                          class="w-2 h-2 rounded-full bg-[#34c759] shadow-[0_0_8px_#34c759]"
+                        ></span> 充足完了
+                      {:else}
+                        <span
+                          class="w-2 h-2 rounded-full bg-[#ff3b30] shadow-[0_0_8px_#ff3b30] animate-pulse"
+                        ></span> 要調整
+                      {/if}
                     </span>
                   </div>
                   <div class="flex items-center justify-between">
@@ -2350,9 +2535,15 @@
                     <span
                       class="flex items-center gap-2 font-bold text-slate-700"
                     >
-                      <span
-                        class="w-2 h-2 rounded-full bg-[#ff9500] shadow-[0_0_8px_#ff9500]"
-                      ></span> 2名 (要通知)
+                      {#if unsubmittedCount === 0}
+                        <span
+                          class="w-2 h-2 rounded-full bg-[#34c759] shadow-[0_0_8px_#34c759]"
+                        ></span> 全員提出済み
+                      {:else}
+                        <span
+                          class="w-2 h-2 rounded-full bg-[#ff9500] shadow-[0_0_8px_#ff9500]"
+                        ></span> <span title={unsubmittedMembers.map(m => m.name).join(', ')}>{unsubmittedCount}名 (要通知)</span>
+                      {/if}
                     </span>
                   </div>
                 </div>

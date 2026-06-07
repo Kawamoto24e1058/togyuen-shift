@@ -20,7 +20,8 @@ export default async function handler(req, res) {
   if (subpath === 'line-url') {
     const channelId = process.env.LINE_CHANNEL_ID;
     const redirectUri = process.env.LINE_REDIRECT_URI || 'http://localhost:3000/callback';
-    const state = Math.random().toString(36).substring(2, 15);
+    const pwaSessionId = req.query.pwaSessionId || new URL(req.url, 'http://localhost').searchParams.get('pwaSessionId');
+    const state = pwaSessionId || Math.random().toString(36).substring(2, 15);
 
     if (!channelId) {
       console.error('[LINE URL] LINE_CHANNEL_ID is not configured.');
@@ -42,7 +43,7 @@ export default async function handler(req, res) {
   // ==========================================
   if (subpath === 'callback') {
     if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
-    const { code } = req.body;
+    const { code, state } = req.body;
     if (!code) {
       return res.status(400).send('認可コード (code) が提供されていません。');
     }
@@ -100,6 +101,19 @@ export default async function handler(req, res) {
 
       if (snapshot.empty) {
         console.warn(`[LINE Callback] Staff not found for lineUserId: ${lineUserId}. Registration required.`);
+        
+        if (state && state.startsWith('pwa_')) {
+          await db.collection('pwa_sessions').doc(state).set({
+            authenticated: true,
+            user: {
+              registered: false,
+              lineUserId,
+              displayName: lineDisplayName
+            },
+            createdAt: new Date().toISOString()
+          });
+        }
+
         return res.status(200).json({
           registered: false,
           message: 'LINE 連携が完了していません。管理者に以下の LINE ユーザーID を伝えて登録してもらってください。',
@@ -116,7 +130,7 @@ export default async function handler(req, res) {
       const isAdmin = memberInfo.isAdmin || false;
 
       const userRef = db.collection('users').doc(lineUserId);
-      await userRef.set({
+      const userData = {
         lineUserId,
         name: memberInfo.name,
         role: memberInfo.role || (memberInfo.roles ? memberInfo.roles[0] : 'hall'),
@@ -124,18 +138,36 @@ export default async function handler(req, res) {
         status: memberInfo.status || 'regular',
         isAdmin,
         lastLoginAt: new Date().toISOString(),
-      }, { merge: true });
+      };
+      await userRef.set(userData, { merge: true });
+
+      if (state && state.startsWith('pwa_')) {
+        await db.collection('pwa_sessions').doc(state).set({
+          authenticated: true,
+          user: {
+            registered: true,
+            id: Number(memberInfo.id),
+            name: memberInfo.name,
+            role: userData.role,
+            roles: userData.roles,
+            status: userData.status,
+            isAdmin,
+            lineUserId
+          },
+          createdAt: new Date().toISOString()
+        });
+      }
 
       return res.status(200).json({
         registered: true,
         message: 'LINEログイン認証に成功しました。',
         user: {
           lineUserId,
-          id: memberInfo.id,
+          id: Number(memberInfo.id),
           name: memberInfo.name,
-          role: memberInfo.role || (memberInfo.roles ? memberInfo.roles[0] : 'hall'),
-          roles: memberInfo.roles || [memberInfo.role || 'hall'],
-          status: memberInfo.status || 'regular',
+          role: userData.role,
+          roles: userData.roles,
+          status: userData.status,
           isAdmin,
         }
       });
@@ -215,6 +247,37 @@ export default async function handler(req, res) {
     } catch (err) {
       console.error('[Mock Auth] Error:', err);
       return res.status(500).send('模擬ログイン処理中にシステムエラーが発生しました。');
+    }
+  }
+
+  // ==========================================
+  // DISPATCH: pwa-status (GET)
+  // ==========================================
+  if (subpath === 'pwa-status') {
+    const pwaSessionId = req.query.pwaSessionId || new URL(req.url, 'http://localhost').searchParams.get('pwaSessionId');
+    if (!pwaSessionId) {
+      return res.status(400).send('pwaSessionId が提供されていません。');
+    }
+    
+    try {
+      const docRef = db.collection('pwa_sessions').doc(pwaSessionId);
+      const doc = await docRef.get();
+      
+      if (!doc.exists) {
+        return res.status(200).json({ authenticated: false });
+      }
+      
+      const data = doc.data();
+      // 一度取得したセッション情報は使い捨てとして即時削除
+      await docRef.delete();
+      
+      return res.status(200).json({
+        authenticated: true,
+        user: data.user
+      });
+    } catch (e) {
+      console.error('[PWA Status Check] Error:', e);
+      return res.status(500).send('エラーが発生しました。');
     }
   }
 
