@@ -708,15 +708,15 @@
             
             const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
             if (isIOS) {
-              pwaLaunchUrl = "webapp://" + window.location.host + "/";
+              pwaLaunchUrl = ""; // iOSは自動遷移すると無効なアドレスエラーになるためガイドを表示するのみ
+              triggerToast("🎉 LINE認証完了。ホーム画面のアプリを開いてください。");
             } else {
               pwaLaunchUrl = "/";
+              triggerToast("🎉 LINE認証完了。PWAアプリへ戻ります...");
+              setTimeout(() => {
+                window.location.href = pwaLaunchUrl;
+              }, 1000);
             }
-            
-            triggerToast("🎉 LINE認証完了。PWAアプリへ引き戻します...");
-            setTimeout(() => {
-              window.location.href = pwaLaunchUrl;
-            }, 1000);
             return;
           }
 
@@ -1437,21 +1437,36 @@
         </div>
         <h2 class="text-2xl font-black tracking-tight">LINEログインが完了しました</h2>
         <p class="text-xs text-[#86868b] leading-relaxed font-semibold">
-          ブラウザでの認証手続きが正常に完了しました。<br />
-          ホーム画面の『桃牛苑』アプリへお戻りください。自動的にログイン状態が引き継がれ、アプリが起動します。
+          ブラウザでの認証手続きが正常に完了しました。
         </p>
         
-        <div class="pt-6">
-          <a
-            href={pwaLaunchUrl}
-            class="px-8 py-4 bg-white text-black font-extrabold rounded-2xl inline-block shadow-lg hover:bg-[#f5f5f7] active:scale-95 transition-all text-xs tracking-wider"
-          >
-            PWAアプリを開く
-          </a>
-        </div>
+        {#if pwaLaunchUrl === ""}
+          <!-- iOS用の手動復帰ガイド (SafariからPWAを直接起動する手段がiOSにないため) -->
+          <div class="space-y-4">
+            <div class="bg-slate-900/80 p-5 rounded-2xl border border-slate-800 text-left text-xs text-[#aeaeb2] leading-relaxed font-semibold">
+              <span class="text-white font-bold block mb-2 text-sm">📲 PWAアプリへの復帰手順：</span>
+              1. ホーム画面（スマートフォンの待受画面）に戻る<br />
+              2. ホーム画面の<span class="text-[#06c755] font-bold">『桃牛苑』</span>アイコンをタップして起動する<br />
+              <span class="text-[10px] text-slate-500 mt-3 block">※ログイン状態はバックグラウンドで自動同期されています。</span>
+            </div>
+          </div>
+        {:else}
+          <!-- Android等の自動遷移 & ボタン -->
+          <p class="text-xs text-[#86868b] leading-relaxed font-semibold">
+            ホーム画面の『桃牛苑』アプリへお戻りください。自動的にログイン状態が引き継がれ、アプリが起動します。
+          </p>
+          <div class="pt-6">
+            <a
+              href={pwaLaunchUrl}
+              class="px-8 py-4 bg-white text-black font-extrabold rounded-2xl inline-block shadow-lg hover:bg-[#f5f5f7] active:scale-95 transition-all text-xs tracking-wider"
+            >
+              PWAアプリを開く
+            </a>
+          </div>
+        {/if}
         
         <p class="text-[9px] text-[#48484a] font-medium leading-relaxed">
-          ※自動で戻らない場合は、スマートフォンのホーム画面から直接『桃牛苑』アプリのアイコンをタップして再開してください。
+          ※PWA（ホーム画面に追加されたアプリ）からログインを開始した場合の専用画面です。
         </p>
       </div>
     </div>
