@@ -167,8 +167,8 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  // POST /api/submit
-  if (req.method === 'POST' && req.url === '/api/submit') {
+  // POST /api/submit or /api/submissions
+  if (req.method === 'POST' && (req.url === '/api/submit' || req.url === '/api/submissions')) {
     let body = '';
     req.on('data', chunk => { body += chunk; });
     req.on('end', () => {
@@ -191,16 +191,42 @@ const server = http.createServer((req, res) => {
           return;
         }
 
-        // サーバー側の締め切りバリデーション
-        const deadlineData = JSON.parse(fs.readFileSync(DEADLINE_FILE, 'utf8'));
-        const deadline = new Date(deadlineData.deadlineDate);
-        const now = new Date();
+        // 猶予期間（5日間）の判定（B期間なら16日以降、A期間なら1日以降は完全に打ち切り）
+        const isPeriodCutoff = (periodStr) => {
+          const parts = periodStr.split("-");
+          const year = Number(parts[0]);
+          const month = Number(parts[1]);
+          const half = parts[2];
+          const now = new Date();
+          if (half === "B") {
+            return now >= new Date(year, month - 1, 16);
+          } else {
+            return now >= new Date(year, month - 1, 1);
+          }
+        };
 
-        if (now > deadline) {
+        if (isPeriodCutoff(period)) {
           res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
-          res.end('提出締め切り日時を過ぎているため、スケジュール希望は提出できません。');
+          res.end('募集期間が完全に終了（打ち切り）しているため、スケジュール希望は提出できません。');
           return;
         }
+
+        // サーバー側の動的締め切り計算
+        const getDeadlineForPeriod = (periodStr) => {
+          const parts = periodStr.split("-");
+          const year = Number(parts[0]);
+          const month = Number(parts[1]);
+          const half = parts[2];
+          if (half === "B") {
+            return new Date(year, month - 1, 10, 23, 59, 59);
+          } else {
+            return new Date(year, month - 2, 25, 23, 59, 59);
+          }
+        };
+
+        const deadline = getDeadlineForPeriod(period);
+        const now = new Date();
+        const isPastDeadline = now > deadline;
 
         // submissions.json の読み込みと更新（同一期間・同一スタッフは上書き）
         let submissions = [];
@@ -212,11 +238,23 @@ const server = http.createServer((req, res) => {
           sub => sub.staffId === Number(staffId) && sub.period === period
         );
 
+        let wasAlreadySubmitted = false;
+        if (existingIndex !== -1) {
+          wasAlreadySubmitted = submissions[existingIndex].isSubmitted === true;
+        }
+
+        if (isPastDeadline && wasAlreadySubmitted) {
+          res.writeHead(403, { 'Content-Type': 'text/plain; charset=utf-8' });
+          res.end('提出締め切り日時を過ぎており、既に提出済みのスケジュール希望は変更できません。');
+          return;
+        }
+
         const newSubmission = {
           staffId: Number(staffId),
           period,
           availabilities,
           lineUserId,
+          isSubmitted: payload.isSubmitted === true,
           submittedAt: submittedAt || new Date().toISOString()
         };
 

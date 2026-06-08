@@ -47,26 +47,59 @@ export default async function handler(req, res) {
         }
       }
 
-      // 締め切りバリデーション
-      const deadlineDoc = await db.collection('config').doc('deadline').get();
-      if (deadlineDoc.exists) {
-        const deadlineData = deadlineDoc.data();
-        if (deadlineData.deadlineDate) {
-          const deadline = new Date(deadlineData.deadlineDate);
-          const now = new Date();
-          if (now > deadline) {
-            return res.status(403).send('提出締め切り日時を過ぎているため、スケジュール希望は提出できません。');
-          }
+      // 猶予期間（5日間）の判定（B期間なら16日以降、A期間なら1日以降は完全に打ち切り）
+      const isPeriodCutoff = (periodStr) => {
+        const parts = periodStr.split("-");
+        const year = Number(parts[0]);
+        const month = Number(parts[1]);
+        const half = parts[2];
+        const now = new Date();
+        if (half === "B") {
+          return now >= new Date(year, month - 1, 16);
+        } else {
+          return now >= new Date(year, month - 1, 1);
         }
+      };
+
+      if (isPeriodCutoff(period)) {
+        return res.status(403).send('募集期間が完全に終了（打ち切り）しているため、スケジュール希望は提出できません。');
       }
 
+      // 動的締め切り計算 (当月後半なら10日、翌月前半なら25日)
+      const getDeadlineForPeriod = (periodStr) => {
+        const parts = periodStr.split("-");
+        const year = Number(parts[0]);
+        const month = Number(parts[1]);
+        const half = parts[2];
+        if (half === "B") {
+          return new Date(year, month - 1, 10, 23, 59, 59);
+        } else {
+          return new Date(year, month - 2, 25, 23, 59, 59);
+        }
+      };
+
+      const deadline = getDeadlineForPeriod(period);
+      const now = new Date();
+      const isPastDeadline = now > deadline;
+
       const docId = `${staffId}_${period}`;
+      const existingDoc = await db.collection('submissions').doc(docId).get();
+      let wasAlreadySubmitted = false;
+      if (existingDoc.exists) {
+        wasAlreadySubmitted = existingDoc.data().isSubmitted === true;
+      }
+
+      if (isPastDeadline && wasAlreadySubmitted) {
+        return res.status(403).send('提出締め切り日時を過ぎており、既に提出済みのスケジュール希望は変更できません。');
+      }
+
       const newSubmission = {
         staffId: Number(staffId),
         period,
         availabilities,
         submitPattern: submitPattern || 'A',
         lineUserId,
+        isSubmitted: payload.isSubmitted === true,
         submittedAt: submittedAt || new Date().toISOString()
       };
 

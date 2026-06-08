@@ -60,8 +60,24 @@
   // 初期シフト (実環境移行のため空配列)
   const DEFAULT_SHIFTS = [];
 
-  // 月度ステート (デフォルト: 2026年6月 前半)
-  let currentPeriod = "2026-06-A";
+  // 動的にデフォルト募集期間を判定するヘルパー (1-15日なら当月後半B, 16日以降なら翌月前半A)
+  function getDefaultPeriod(now = new Date()) {
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1; // 1-12
+    const day = now.getDate();
+    
+    if (day <= 15) {
+      return `${year}-${String(month).padStart(2, "0")}-B`;
+    } else {
+      const nextDate = new Date(year, now.getMonth() + 1, 1);
+      const nextYear = nextDate.getFullYear();
+      const nextMonth = nextDate.getMonth() + 1;
+      return `${nextYear}-${String(nextMonth).padStart(2, "0")}-A`;
+    }
+  }
+
+  // 月度ステート
+  let currentPeriod = getDefaultPeriod();
 
   // 日付リストを動的に生成するヘルパー関数 (前半: 1-15日, 後半: 16-末日)
   /**
@@ -221,8 +237,11 @@
   }
 
   // リアクティブ変数として定義
+  $: currentMonth = currentPeriod.substring(0, 7);
   $: DATES = generateDates(currentPeriod);
   $: GRID_CELLS = generateGridCells(currentPeriod);
+  $: DATES_MONTH = generateDates(currentMonth);
+  $: GRID_CELLS_MONTH = generateGridCells(currentMonth);
 
   // 日曜始まりのヘッダー定義
   const CALENDAR_HEADERS = ["日", "月", "火", "水", "木", "金", "土"];
@@ -236,6 +255,8 @@
   /** @type {string[]} */
   let specialHolidays = [];
   let shiftStatus = "draft"; // 'draft' (下書き) | 'published' (公開済み)
+  let shiftStatusA = "draft";
+  let shiftStatusB = "draft";
   let isGenerating = false;
   /** @type {string | null} */
   let toastMessage = null;
@@ -251,7 +272,79 @@
   /** @type {any} */
   let saveTimeout = null;
 
-  $: isLocked = deadlineDate ? new Date() > new Date(deadlineDate) : false;
+  // 自律型遅刻救済のための動的締め切り計算
+  function getDeadlineDateForPeriod(periodStr) {
+    if (!periodStr) return null;
+    const parts = periodStr.split("-");
+    const year = Number(parts[0]);
+    const month = Number(parts[1]);
+    const half = parts[2]; // 'A' or 'B'
+    if (half === "B") {
+      // 当月10日 23:59:59
+      return new Date(year, month - 1, 10, 23, 59, 59);
+    } else if (half === "A") {
+      // 前月25日 23:59:59
+      return new Date(year, month - 2, 25, 23, 59, 59);
+    }
+    return null;
+  }
+
+  // 猶予期間（5日間）の判定 (B期間なら16日以降、A期間なら1日以降は完全に打ち切り)
+  function isPeriodCutoff(periodStr, now = new Date()) {
+    if (!periodStr) return false;
+    const parts = periodStr.split("-");
+    const year = Number(parts[0]);
+    const month = Number(parts[1]);
+    const half = parts[2]; // 'A' or 'B'
+    if (half === "B") {
+      return now >= new Date(year, month - 1, 16);
+    } else {
+      return now >= new Date(year, month - 1, 1);
+    }
+  }
+
+  // 残り猶予日数の計算
+  function getDaysRemaining(periodStr, now = new Date()) {
+    if (!periodStr) return 0;
+    const parts = periodStr.split("-");
+    const year = Number(parts[0]);
+    const month = Number(parts[1]);
+    const half = parts[2]; // 'A' or 'B'
+    
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    let cutoffDate;
+    if (half === "B") {
+      cutoffDate = new Date(year, month - 1, 16);
+    } else {
+      cutoffDate = new Date(year, month - 1, 1);
+    }
+    
+    const diffTime = cutoffDate.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays > 0 ? diffDays : 0;
+  }
+
+  const ALL_PERIODS = [
+    { value: "2026-06-A", label: "2026年6月 前半 (1日〜15日) " },
+    { value: "2026-06-B", label: "2026年6月 後半 (16日〜末日)" },
+    { value: "2026-07-A", label: "2026年7月 前半 (1日〜15日)" },
+    { value: "2026-07-B", label: "2026年7月 後半 (16日〜末日)" },
+    { value: "2026-08-A", label: "2026年8月 前半 (1日〜15日)" },
+    { value: "2026-08-B", label: "2026年8月 後半 (16日〜末日)" },
+  ];
+
+  $: selectablePeriods = ALL_PERIODS.filter(p => {
+    if (currentUser?.isAdmin) return true;
+    return !isPeriodCutoff(p.value);
+  });
+
+  $: deadlineObj = getDeadlineDateForPeriod(currentPeriod);
+  $: isPastDeadline = deadlineObj ? new Date() > deadlineObj : false;
+  $: mySubmission = allSubmissions.find(
+    (sub) => sub.period === currentPeriod && Number(sub.staffId) === Number(currentUser?.id)
+  );
+  $: isSubmitted = mySubmission ? mySubmission.isSubmitted === true : false;
+  $: isLocked = !currentUser?.isAdmin && (isPeriodCutoff(currentPeriod) || (isPastDeadline && isSubmitted));
 
   /** @type {any[]} */
   let allSubmissions = [];
@@ -841,14 +934,30 @@
     return acc;
   }, /** @type {Record<string, { isValid: boolean, message?: string }>} */ ({}));
 
+  $: isVisibleA = currentUser?.isAdmin || shiftStatusA === "published";
+  $: isVisibleB = currentUser?.isAdmin || shiftStatusB === "published";
+
   $: memberAssignedStats = members.map((m) => {
-    const count = shifts.filter((s) => s.member_id === m.id).length;
-    const targetDays =
-      m.targetDays !== undefined
-        ? m.targetDays > 7
-          ? Math.floor(m.targetDays / 2)
-          : m.targetDays
-        : 5;
+    // Only count shifts that are visible to the user
+    const visibleShifts = shifts.filter((s) => {
+      if (s.member_id !== m.id) return false;
+      if (!s.date) return false;
+      const day = Number(s.date.split("-")[2]);
+      return day <= 15 ? isVisibleA : isVisibleB;
+    });
+
+    const count = visibleShifts.length;
+    const rawTarget = m.targetDays !== undefined ? m.targetDays : 10;
+
+    let targetDays;
+    if (isVisibleA && isVisibleB) {
+      targetDays = rawTarget;
+    } else if (isVisibleA || isVisibleB) {
+      targetDays = rawTarget > 7 ? Math.floor(rawTarget / 2) : rawTarget;
+    } else {
+      targetDays = 0;
+    }
+
     const target = m.status === "trainee" ? "土日" : targetDays;
     const isOk = m.status === "trainee" ? count > 0 : count === targetDays;
     const isUnder = m.status === "regular" && count < targetDays;
@@ -954,15 +1063,38 @@
    */
   async function saveShiftsManually(currentShifts) {
     try {
-      const res = await fetch("/api/shifts/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ shifts: currentShifts, period: currentPeriod }),
+      const baseMonth = currentPeriod.substring(0, 7); // e.g. "2026-06"
+      
+      const shiftsA = currentShifts.filter((s) => {
+        if (!s.date || !s.date.startsWith(baseMonth)) return false;
+        const day = Number(s.date.split("-")[2]);
+        return day <= 15;
       });
-      if (!res.ok) {
-        throw new Error(await res.text());
+      
+      const shiftsB = currentShifts.filter((s) => {
+        if (!s.date || !s.date.startsWith(baseMonth)) return false;
+        const day = Number(s.date.split("-")[2]);
+        return day >= 16;
+      });
+
+      // Save both halves
+      const [resA, resB] = await Promise.all([
+        fetch("/api/shifts/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ shifts: shiftsA, period: `${baseMonth}-A` }),
+        }),
+        fetch("/api/shifts/save", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ shifts: shiftsB, period: `${baseMonth}-B` }),
+        })
+      ]);
+
+      if (!resA.ok || !resB.ok) {
+        throw new Error("保存処理に失敗しました。");
       }
-      console.info("[App] Shift saved successfully.");
+      console.info("[App] Shift saved successfully for both halves.");
     } catch (error) {
       const err = /** @type {any} */ (error);
       console.error("シフトの手動保存に失敗しました:", err);
@@ -971,13 +1103,21 @@
   }
 
   async function loadShifts(targetPeriod = "2026-06") {
+    const baseMonth = targetPeriod.substring(0, 7); // e.g. "2026-06"
     try {
-      const res = await fetch(`/api/shifts?period=${targetPeriod}`);
-      if (res.ok) {
-        shifts = await res.json();
-      } else {
-        shifts = [];
+      const [resA, resB] = await Promise.all([
+        fetch(`/api/shifts?period=${baseMonth}-A`),
+        fetch(`/api/shifts?period=${baseMonth}-B`),
+      ]);
+      let shiftsA = [];
+      let shiftsB = [];
+      if (resA.ok) {
+        shiftsA = await resA.json();
       }
+      if (resB.ok) {
+        shiftsB = await resB.json();
+      }
+      shifts = [...shiftsA, ...shiftsB];
     } catch (e) {
       console.error("[App] Failed to load shifts:", e);
       shifts = [];
@@ -1032,11 +1172,31 @@
   }
 
   async function fetchShiftStatus(targetPeriod = "2026-06") {
+    const baseMonth = targetPeriod.substring(0, 7); // e.g. "2026-06"
     try {
-      const res = await fetch(`/api/shifts/status?period=${targetPeriod}`);
-      if (res.ok) {
-        const data = await res.json();
-        shiftStatus = data.status || "draft";
+      const [resA, resB] = await Promise.all([
+        fetch(`/api/shifts/status?period=${baseMonth}-A`),
+        fetch(`/api/shifts/status?period=${baseMonth}-B`),
+      ]);
+      if (resA.ok) {
+        const dataA = await resA.json();
+        shiftStatusA = dataA.status || "draft";
+      } else {
+        shiftStatusA = "draft";
+      }
+      if (resB.ok) {
+        const dataB = await resB.json();
+        shiftStatusB = dataB.status || "draft";
+      } else {
+        shiftStatusB = "draft";
+      }
+      // Sync shiftStatus to the current active period's status
+      if (targetPeriod.endsWith("-A")) {
+        shiftStatus = shiftStatusA;
+      } else if (targetPeriod.endsWith("-B")) {
+        shiftStatus = shiftStatusB;
+      } else {
+        shiftStatus = shiftStatusA;
       }
     } catch (e) {
       console.error("[App] Failed to load shift status:", e);
@@ -1053,6 +1213,11 @@
       if (res.ok) {
         const data = await res.json();
         shiftStatus = data.status;
+        if (targetPeriod.endsWith("-A")) {
+          shiftStatusA = data.status;
+        } else if (targetPeriod.endsWith("-B")) {
+          shiftStatusB = data.status;
+        }
         triggerToast("💚 シフトを確定公開し、LINE通知を送信しました！");
       } else {
         throw new Error(await res.text());
@@ -1074,6 +1239,11 @@
       if (res.ok) {
         const data = await res.json();
         shiftStatus = data.status;
+        if (targetPeriod.endsWith("-A")) {
+          shiftStatusA = data.status;
+        } else if (targetPeriod.endsWith("-B")) {
+          shiftStatusB = data.status;
+        }
         triggerToast("✏️ シフトを下書き状態に戻しました。");
       } else {
         throw new Error(await res.text());
@@ -1164,7 +1334,18 @@
       }
       const data = await res.json();
       if (data.shifts && data.shifts.length > 0) {
-        shifts = data.shifts;
+        const baseMonth = currentPeriod.substring(0, 7); // e.g. "2026-06"
+        const half = currentPeriod.substring(8); // "A" or "B"
+        const otherHalfShifts = shifts.filter((s) => {
+          if (!s.date || !s.date.startsWith(baseMonth)) return true;
+          const day = Number(s.date.split("-")[2]);
+          if (half === "A") {
+            return day >= 16;
+          } else {
+            return day <= 15;
+          }
+        });
+        shifts = [...otherHalfShifts, ...data.shifts];
         // 最適化結果を取得した後に、再度臨時休業リストもリロードして表示整合性を保ちます
         await fetchHolidays();
         triggerToast(
@@ -1342,6 +1523,7 @@
       lineUserId: currentUser
         ? currentUser.lineUserId
         : m.lineUserId || `U06c755lineUser_${m.id}`,
+      isSubmitted: isSubmitted,
       submittedAt: new Date().toISOString(),
     };
 
@@ -1415,6 +1597,51 @@
     };
     staffAvailabilities = updated;
     debouncedAutoSave(updated);
+  }
+
+  let isSubmittingShift = false;
+  async function handleExplicitSubmit() {
+    const m = members.find((mem) => mem.id === selectedStaffId);
+    if (!m) return;
+    
+    isSubmittingShift = true;
+    const payload = {
+      staffId: m.id,
+      period: currentPeriod,
+      availabilities: staffAvailabilities,
+      submitPattern: submitPattern,
+      lineUserId: currentUser
+        ? currentUser.lineUserId
+        : m.lineUserId || `U06c755lineUser_${m.id}`,
+      submittedAt: new Date().toISOString(),
+      isSubmitted: true // Mark as explicitly submitted!
+    };
+
+    try {
+      const res = await fetch("/api/submissions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+      
+      const data = await res.json();
+      if (data.shiftsUpdated) {
+        await loadShifts(currentPeriod);
+      }
+      
+      await fetchSubmissions();
+      triggerToast("💚 希望シフトを提出しました！");
+    } catch (error) {
+      const err = /** @type {any} */ (error);
+      console.error(err);
+      triggerToast(`⚠️ 提出に失敗しました: ${err.message}`);
+    } finally {
+      isSubmittingShift = false;
+    }
   }
 
   const WEEKDAY_NAMES = CALENDAR_HEADERS;
@@ -1599,12 +1826,9 @@
           on:change={handlePeriodChange}
           class="bg-slate-100 hover:bg-slate-200 border-0 text-xs font-bold text-slate-700 px-3 py-1.5 rounded-xl outline-none transition-colors cursor-pointer shadow-sm"
         >
-          <option value="2026-06-A">2026年6月 前半 (1日〜15日) </option>
-          <option value="2026-06-B">2026年6月 後半 (16日〜末日)</option>
-          <option value="2026-07-A">2026年7月 前半 (1日〜15日)</option>
-          <option value="2026-07-B">2026年7月 後半 (16日〜末日)</option>
-          <option value="2026-08-A">2026年8月 前半 (1日〜15日)</option>
-          <option value="2026-08-B">2026年8月 後半 (16日〜末日)</option>
+          {#each selectablePeriods as p}
+            <option value={p.value}>{p.label}</option>
+          {/each}
         </select>
       </div>
 
@@ -1929,31 +2153,6 @@
       <!-- ========================================================================= -->
       {#if activeTab === "calendar"}
         <div class="space-y-6" in:fade={{ duration: 150 }}>
-          {#if (!currentUser || !currentUser.isAdmin) && shiftStatus === "draft"}
-            <!-- 一般スタッフ向け「下書き・調整中」マスク (Apple風極上グラスモーフィズム) -->
-            <div
-              class="glass-panel min-h-[60vh] flex flex-col items-center justify-center text-center p-8 bg-white border border-slate-200/50 relative overflow-hidden space-y-6 rounded-3xl"
-              in:fade={{ duration: 150 }}
-            >
-              <div
-                class="w-16 h-16 rounded-full bg-amber-50 border border-amber-100 flex items-center justify-center text-amber-500 text-3xl shadow-sm animate-pulse mx-auto select-none"
-              >
-                ⏰
-              </div>
-              <div class="space-y-2 max-w-sm mx-auto">
-                <h3
-                  class="text-base font-extrabold text-slate-900 tracking-tight"
-                >
-                  ただいま店長がシフト調整中です
-                </h3>
-                <p class="text-xs text-slate-400 font-semibold leading-relaxed">
-                  現在、店長が来月のシフト表をパズル調整しています。<br />
-                  確定し、公開されるとLINEグループに通知が届きます。今しばらくお待ちください
-                  
-                </p>
-              </div>
-            </div>
-          {:else}
             <!-- スマホ専用 横画面回転ガイド案内 -->
             <div class="mobile-landscape-tip flex items-center gap-2">
               <span>💡</span>
@@ -2023,7 +2222,7 @@
 
                 <!-- 日付グリッド -->
                 <div class="grid grid-cols-7 gap-3">
-                  {#each GRID_CELLS as d}
+                  {#each GRID_CELLS_MONTH as d}
                     {@const isRegularClosed = d.isRegularClosed}
                     {@const isSpecialClosed = specialHolidays.includes(
                       d.dateStr,
@@ -2038,6 +2237,11 @@
                             (s) => s.member_id === currentUser?.id,
                           )
                         : allShifts}
+                    {@const cellDayNum = Number(d.dateStr.split("-")[2])}
+                    {@const cellPeriodHalf = cellDayNum <= 15 ? 'A' : 'B'}
+                    {@const cellStatus = cellPeriodHalf === 'A' ? shiftStatusA : shiftStatusB}
+                    {@const isCellPublished = cellStatus === 'published'}
+                    {@const isVisibleToUser = currentUser?.isAdmin || isCellPublished}
 
                     <!-- svelte-ignore a11y_click_events_have_key_events -->
                     <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -2048,13 +2252,14 @@
                           triggerToast("毎週水曜日は店舗定休日です。");
                           return;
                         }
+                        if (!isVisibleToUser) return;
                         selectedEditDate = d.dateStr;
                       }}
-                      class="glass-panel p-4 min-h-[160px] flex flex-col justify-between relative bg-white cursor-pointer {d.isOtherMonth
+                      class="glass-panel p-4 min-h-[160px] flex flex-col justify-between relative bg-white {d.isOtherMonth
                         ? 'other-month-cell'
                         : ''} {isClosed && !d.isOtherMonth
                         ? 'opacity-40 bg-slate-50 border-dashed shadow-none cursor-pointer'
-                        : ''}"
+                        : ''} {!isVisibleToUser && !d.isOtherMonth ? 'cursor-not-allowed' : 'cursor-pointer'}"
                     >
                       <!-- 上部: 日付タイポグラフィ -->
                       <div>
@@ -2072,6 +2277,12 @@
                         <div class="mt-3.5 space-y-1.5">
                           {#if d.isOtherMonth}
                             <!-- 前月・翌月は空欄 -->
+                          {:else if !isVisibleToUser}
+                            <div class="flex flex-col items-center justify-center min-h-[60px] py-2">
+                              <span class="text-xs text-amber-500 font-extrabold flex items-center gap-1 animate-pulse">
+                                調整中 ⏰
+                              </span>
+                            </div>
                           {:else if isClosed}
                             <span
                               class="text-[10px] text-slate-400 block mt-3.5 font-bold text-center"
@@ -2215,7 +2426,6 @@
                 </div>
               </div>
             </div>
-          {/if}
         </div>
       {/if}
 
@@ -2381,29 +2591,54 @@
                 <div
                   class="flex flex-col items-center justify-center w-full md:w-[450px] gap-3"
                 >
-                  {#if isLocked}
-                    <!-- ロック時のプレミアム表示 -->
-                    <div
-                      class="w-full glass-panel p-5 border border-slate-200/60 bg-slate-50/60 rounded-3xl flex flex-col items-center gap-2 text-center shadow-sm"
-                    >
-                      <span
-                        class="text-xs font-bold text-slate-500 flex items-center gap-1.5 animate-pulse"
+                  {#if isPastDeadline}
+                    {#if isSubmitted}
+                      <!-- 締め切り後 ＆ 提出済み ➔ ロック状態 -->
+                      <div
+                        class="w-full glass-panel p-5 border border-slate-200/60 bg-slate-50/60 rounded-3xl flex flex-col items-center gap-2 text-center shadow-sm"
                       >
-                        🔒 希望シフトの提出は締め切られました
-                      </span>
-                      <span
-                        class="text-[10px] text-slate-400 leading-relaxed font-semibold"
+                        <span
+                          class="text-xs font-bold text-slate-500 flex items-center gap-1.5"
+                        >
+                          🔒 希望シフトは提出済みです（募集終了）
+                        </span>
+                        <span
+                          class="text-[10px] text-slate-400 leading-relaxed font-semibold"
+                        >
+                          提出締め切り日時 ({deadlineObj ? deadlineObj.toLocaleString() : ""})
+                          を過ぎたため、閲覧のみとなっております。変更は店長へ直接ご相談ください。
+                        </span>
+                      </div>
+                    {:else}
+                      <!-- 締め切り後 ＆ 未提出 ➔ 遅刻救済状態 -->
+                      <div
+                        class="w-full glass-panel p-5 border border-amber-200 bg-amber-50/20 rounded-3xl flex flex-col items-center gap-3 text-center shadow-sm"
                       >
-                        提出締め切り日時 ({new Date(
-                          deadlineDate,
-                        ).toLocaleString()})
-                        を過ぎたため、閲覧のみとなっております。変更は店長へ直接ご相談ください。
-                      </span>
-                    </div>
+                        <span
+                          class="text-xs font-bold text-amber-700 flex items-center gap-1.5 animate-pulse"
+                        >
+                          ⚠️ 締め切りを過ぎています（未提出）
+                        </span>
+                        <span
+                          class="text-[10px] text-amber-600 leading-relaxed font-semibold"
+                        >
+                          現在、例外的に遅れての提出が許可されています。希望を選択して「遅れて提出する」ボタンを押してください。<br />
+                          <strong>⏰ あと {getDaysRemaining(currentPeriod)} 日で完全に締め切られ、提出できなくなります。</strong>
+                        </span>
+                        <button
+                          type="button"
+                          on:click={handleExplicitSubmit}
+                          disabled={isSubmittingShift}
+                          class="w-full py-3 bg-orange-500 hover:bg-orange-600 active:scale-[0.99] text-white text-xs font-bold rounded-2xl transition-all shadow-[0_4px_12px_rgba(249,115,22,0.2)] flex items-center justify-center gap-2 cursor-pointer border-0"
+                        >
+                          遅れて提出する (残り {getDaysRemaining(currentPeriod)} 日！)
+                        </button>
+                      </div>
+                    {/if}
                   {:else}
-                    <!-- 締め切り前のオートセーブステータスカード -->
+                    <!-- 締め切り前 ➔ 通常提出状態 -->
                     <div
-                      class="w-full glass-panel p-5 border border-slate-200/60 bg-white rounded-3xl flex flex-col items-center gap-2 text-center shadow-sm hover:shadow-md transition-all duration-300"
+                      class="w-full glass-panel p-5 border border-slate-200/60 bg-white rounded-3xl flex flex-col items-center gap-3 text-center shadow-sm hover:shadow-md transition-all duration-300"
                     >
                       <div
                         class="flex items-center gap-2 text-xs font-bold text-slate-800"
@@ -2425,19 +2660,26 @@
                             ></span>
                           </span>
                           <span class="text-emerald-600"
-                            >希望シフトはリアルタイムに自動保存されています </span
+                            >希望シフトは自動保存されています </span
                           >
                         {/if}
                       </div>
                       <span
                         class="text-[10px] text-slate-400 leading-relaxed font-semibold"
                       >
-                        カレンダーの日付をタップするだけで、店長側のデータベースに即座に反映されます。
-                        <br />
-                        ⏰ 提出締め切り: {new Date(
-                          deadlineDate,
-                        ).toLocaleString()} まで何回でも変更可能です。
+                        カレンダーをタップすると自動保存されます。
+                        提出締め切り ({deadlineObj ? deadlineObj.toLocaleString() : ""}) まで変更可能です。
                       </span>
+                      <button
+                        type="button"
+                        on:click={handleExplicitSubmit}
+                        disabled={isSubmittingShift || isSubmitted}
+                        class="w-full py-3 transition-all flex items-center justify-center gap-2 text-xs font-bold rounded-2xl cursor-pointer border-0 {isSubmitted
+                          ? 'bg-emerald-100 text-emerald-700 border border-emerald-200 cursor-not-allowed'
+                          : 'bg-[#0071e3] hover:bg-[#0077f3] text-white shadow-[0_4px_12px_rgba(0,113,227,0.2)] active:scale-[0.99]'}"
+                      >
+                        {isSubmitted ? "確定提出済み" : "希望シフトを確定提出する"}
+                      </button>
                     </div>
                   {/if}
                 </div>
