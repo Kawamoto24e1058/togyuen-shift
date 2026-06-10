@@ -25,7 +25,10 @@ export default async function handler(req, res) {
     const membersSnapshot = await db.collection('members').get();
     const members = [];
     membersSnapshot.forEach(doc => {
-      members.push({ id: Number(doc.id), ...doc.data() });
+      const data = doc.data();
+      if (data.isActive !== false) {
+        members.push({ id: Number(doc.id), ...data });
+      }
     });
 
     if (members.length === 0) {

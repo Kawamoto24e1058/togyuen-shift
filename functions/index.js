@@ -55,7 +55,12 @@ export const scheduledReminder = onSchedule({
     }
 
     const allMembers = [];
-    usersSnap.forEach(doc => allMembers.push({ id: doc.id, ...doc.data() }));
+    usersSnap.forEach(doc => {
+      const data = doc.data();
+      if (data.isActive !== false) {
+        allMembers.push({ id: doc.id, ...data });
+      }
+    });
 
     // ── 2. 当月の提出済み lineUserId を収集 ────────────────
     const subsSnap = await db.collection("submissions")

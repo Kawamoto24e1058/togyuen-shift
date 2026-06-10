@@ -16,9 +16,48 @@ export default async function handler(req, res) {
   const action = req.query.action || urlParts[3] || req.body.action || '';
 
   // ==========================================
+  // DISPATCH: archive (POST)
+  // ==========================================
+  if (action === 'archive') {
+    try {
+      const { id, isActive } = req.body || {};
+      if (!id || isActive === undefined) {
+        return res.status(400).send('必須パラメータ（id, isActive）が不足しています。');
+      }
+
+      const memberIdStr = String(id);
+      console.info(`[API Members Archive] Setting isActive for member ${memberIdStr} to ${isActive}`);
+
+      const docRef = db.collection('members').doc(memberIdStr);
+      const doc = await docRef.get();
+
+      if (!doc.exists) {
+        return res.status(404).send('指定されたメンバーが見つかりません。');
+      }
+
+      await docRef.update({
+        isActive: Boolean(isActive),
+        updatedAt: new Date().toISOString()
+      });
+
+      console.info(`[API Members Archive] Successfully updated member ${memberIdStr}!`);
+
+      return res.status(200).json({
+        success: true,
+        message: isActive ? 'メンバーを有効化（復職）しました。' : 'メンバーを退職処理（非表示）にしました。',
+        id: Number(id),
+        isActive: Boolean(isActive)
+      });
+    } catch (err) {
+      console.error('[API Members Archive] Error:', err);
+      return res.status(500).send('メンバーのアーカイブ処理に失敗しました。');
+    }
+  }
+
+  // ==========================================
   // DISPATCH: update (POST)
   // ==========================================
-  if (req.method === 'POST' || action === 'update') {
+  if (action === 'update' || (req.method === 'POST' && action !== 'archive')) {
     try {
       const { id, targetDays } = req.body || {};
       if (!id || targetDays === undefined) {
@@ -74,7 +113,8 @@ export default async function handler(req, res) {
           emoji: data.roles?.includes('kitchen') ? '👨‍🍳' : '👩‍💼',
           color: data.roles?.includes('kitchen') ? '#ff7043' : '#ffb300',
           lineUserId: data.lineUserId || null,
-          targetDays: data.targetDays || 10
+          targetDays: data.targetDays || 10,
+          isActive: data.isActive !== false // Default to true
         });
       });
 

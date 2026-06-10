@@ -1,216 +1,28 @@
 {
-  "start_date": "2026-06-01",
-  "end_date": "2026-06-15",
+  "start_date": "2026-06-16",
+  "end_date": "2026-06-30",
   "members": [
     {
       "id": 1,
-      "name": "佐藤",
+      "name": "はる",
       "roles": [
-        "kitchen"
+        "hall"
       ],
       "status": "regular",
       "targetDays": 5
     },
     {
       "id": 2,
-      "name": "鈴木",
+      "name": "arisa",
       "roles": [
         "kitchen",
         "hall"
       ],
       "status": "regular",
       "targetDays": 5
-    },
-    {
-      "id": 3,
-      "name": "高橋",
-      "roles": [
-        "kitchen",
-        "hall"
-      ],
-      "status": "regular",
-      "targetDays": 5
-    },
-    {
-      "id": 4,
-      "name": "田中",
-      "roles": [
-        "hall"
-      ],
-      "status": "regular",
-      "targetDays": 5
-    },
-    {
-      "id": 5,
-      "name": "渡辺",
-      "roles": [
-        "hall"
-      ],
-      "status": "regular",
-      "targetDays": 5
-    },
-    {
-      "id": 6,
-      "name": "伊藤",
-      "roles": [
-        "kitchen"
-      ],
-      "status": "trainee",
-      "targetDays": 0
-    },
-    {
-      "id": 7,
-      "name": "山本",
-      "roles": [
-        "hall"
-      ],
-      "status": "trainee",
-      "targetDays": 0
-    },
-    {
-      "id": 8,
-      "name": "晴春",
-      "roles": [
-        "hall"
-      ],
-      "status": "regular",
-      "targetDays": 5
     }
   ],
-  "special_holidays": [
-    "2026-06-02"
-  ],
-  "submissions": [
-    {
-      "member_id": 1,
-      "availabilities": {
-        "2026-06-05": false,
-        "2026-06-06": false,
-        "2026-06-08": false,
-        "2026-06-09": false,
-        "2026-06-12": false
-      }
-    },
-    {
-      "member_id": 2,
-      "availabilities": {
-        "2026-06-08": true,
-        "2026-06-05": false,
-        "2026-06-07": true,
-        "2026-06-10": true,
-        "2026-06-06": true,
-        "2026-06-04": true,
-        "2026-06-09": true,
-        "2026-06-03": true,
-        "2026-06-12": true,
-        "2026-06-02": true,
-        "2026-06-13": true,
-        "2026-06-14": true,
-        "2026-06-11": true,
-        "2026-06-15": false,
-        "2026-06-01": false
-      }
-    },
-    {
-      "member_id": 3,
-      "availabilities": {
-        "2026-06-10": true,
-        "2026-06-04": true,
-        "2026-06-03": true,
-        "2026-06-13": true,
-        "2026-06-14": true,
-        "2026-06-11": true,
-        "2026-06-15": true,
-        "2026-06-02": true,
-        "2026-06-01": true,
-        "2026-06-08": true,
-        "2026-06-05": true,
-        "2026-06-06": false,
-        "2026-06-09": true,
-        "2026-06-07": true,
-        "2026-06-12": true
-      }
-    },
-    {
-      "member_id": 4,
-      "availabilities": {
-        "2026-06-07": false,
-        "2026-06-01": true,
-        "2026-06-04": true,
-        "2026-06-15": true,
-        "2026-06-05": true,
-        "2026-06-08": true,
-        "2026-06-02": true,
-        "2026-06-09": true,
-        "2026-06-12": true,
-        "2026-06-03": true,
-        "2026-06-10": true,
-        "2026-06-06": true,
-        "2026-06-13": true,
-        "2026-06-11": true,
-        "2026-06-14": true
-      }
-    },
-    {
-      "member_id": 5,
-      "availabilities": {
-        "2026-06-08": true,
-        "2026-06-04": true,
-        "2026-06-03": true,
-        "2026-06-05": true,
-        "2026-06-11": true,
-        "2026-06-14": true,
-        "2026-06-02": true,
-        "2026-06-06": true,
-        "2026-06-12": true,
-        "2026-06-01": true,
-        "2026-06-07": true,
-        "2026-06-15": true,
-        "2026-06-13": true,
-        "2026-06-09": false,
-        "2026-06-10": true
-      }
-    },
-    {
-      "member_id": 6,
-      "availabilities": {
-        "2026-06-06": true,
-        "2026-06-13": true,
-        "2026-06-09": false,
-        "2026-06-07": true,
-        "2026-06-04": false,
-        "2026-06-10": false,
-        "2026-06-02": false,
-        "2026-06-15": false,
-        "2026-06-01": false,
-        "2026-06-12": false,
-        "2026-06-08": false,
-        "2026-06-05": false,
-        "2026-06-14": true,
-        "2026-06-11": false,
-        "2026-06-03": false
-      }
-    },
-    {
-      "member_id": 7,
-      "availabilities": {
-        "2026-06-06": true,
-        "2026-06-04": false,
-        "2026-06-08": false,
-        "2026-06-05": false,
-        "2026-06-01": false,
-        "2026-06-07": true,
-        "2026-06-10": false,
-        "2026-06-14": true,
-        "2026-06-11": false,
-        "2026-06-15": false,
-        "2026-06-03": false,
-        "2026-06-09": false,
-        "2026-06-12": false,
-        "2026-06-02": false,
-        "2026-06-13": true
-      }
-    }
-  ],
+  "special_holidays": [],
+  "submissions": [],
   "locked_assignments": []
 }

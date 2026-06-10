@@ -108,6 +108,7 @@ export default async function handler(req, res) {
       const members = [];
       membersSnap.forEach(doc => {
         const data = doc.data();
+        if (data.isActive === false) return; // Skip inactive members!
         let targetDays = data.targetDays !== undefined ? Number(data.targetDays) : 5;
         if (targetDays > 7) {
           targetDays = Math.floor(targetDays / 2);
@@ -159,10 +160,13 @@ export default async function handler(req, res) {
         });
       }
 
-      const submissions = Array.from(submissionsMap.entries()).map(([member_id, availabilities]) => ({
-        member_id,
-        availabilities
-      }));
+      const activeMemberIds = new Set(members.map(m => m.id));
+      const submissions = Array.from(submissionsMap.entries())
+        .filter(([member_id]) => activeMemberIds.has(member_id))
+        .map(([member_id, availabilities]) => ({
+          member_id,
+          availabilities
+        }));
 
       const sampleDataPath = path.join(rootDir, 'sample_data.json');
       const assignedShiftsPath = path.join(rootDir, 'assigned_shifts.json');
@@ -178,6 +182,7 @@ export default async function handler(req, res) {
           if (Array.isArray(existingShifts)) {
             lockedAssignments = existingShifts.filter(s => {
               if (s.isLocked !== true) return false;
+              if (!activeMemberIds.has(Number(s.member_id))) return false; // Filter out retired members!
               return s.date >= startDateStr && s.date <= endDateStr;
             });
           }

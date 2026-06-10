@@ -60,19 +60,29 @@
   // 初期シフト (実環境移行のため空配列)
   const DEFAULT_SHIFTS = [];
 
-  // 動的にデフォルト募集期間を判定するヘルパー (1-15日なら当月後半B, 16日以降なら翌月前半A)
+  // 動的にデフォルト募集期間を判定するヘルパー
+  // 締め切り時刻（10日の終わり、25日の終わり）を過ぎたら、自動的に次のシフト希望期間にスライドする
   function getDefaultPeriod(now = new Date()) {
-    const year = now.getFullYear();
-    const month = now.getMonth() + 1; // 1-12
-    const day = now.getDate();
+    const jstDate = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Tokyo" }));
+    const year = jstDate.getFullYear();
+    const month = jstDate.getMonth() + 1; // 1-12
+    const day = jstDate.getDate();
     
-    if (day <= 15) {
+    if (day <= 10) {
+      // 10日が終わるまでは当月の後半B期間
       return `${year}-${String(month).padStart(2, "0")}-B`;
-    } else {
-      const nextDate = new Date(year, now.getMonth() + 1, 1);
+    } else if (day >= 11 && day <= 25) {
+      // 11日〜25日が終わるまでは翌月の前半A期間
+      const nextDate = new Date(year, jstDate.getMonth() + 1, 1);
       const nextYear = nextDate.getFullYear();
       const nextMonth = nextDate.getMonth() + 1;
       return `${nextYear}-${String(nextMonth).padStart(2, "0")}-A`;
+    } else {
+      // 26日以降は翌月の後半B期間
+      const nextDate = new Date(year, jstDate.getMonth() + 1, 1);
+      const nextYear = nextDate.getFullYear();
+      const nextMonth = nextDate.getMonth() + 1;
+      return `${nextYear}-${String(nextMonth).padStart(2, "0")}-B`;
     }
   }
 
@@ -333,10 +343,7 @@
     { value: "2026-08-B", label: "2026年8月 後半 (16日〜末日)" },
   ];
 
-  $: selectablePeriods = ALL_PERIODS.filter(p => {
-    if (currentUser?.isAdmin) return true;
-    return !isPeriodCutoff(p.value);
-  });
+  $: selectablePeriods = ALL_PERIODS;
 
   $: deadlineObj = getDeadlineDateForPeriod(currentPeriod);
   $: isPastDeadline = deadlineObj ? new Date() > deadlineObj : false;
@@ -344,7 +351,7 @@
     (sub) => sub.period === currentPeriod && Number(sub.staffId) === Number(currentUser?.id)
   );
   $: isSubmitted = mySubmission ? mySubmission.isSubmitted === true : false;
-  $: isLocked = !currentUser?.isAdmin && (isPeriodCutoff(currentPeriod) || (isPastDeadline && isSubmitted));
+  $: isLocked = !currentUser?.isAdmin && isPastDeadline;
 
   /** @type {any[]} */
   let allSubmissions = [];
@@ -367,7 +374,7 @@
       .map((sub) => Number(sub.staffId))
   );
   $: unsubmittedMembers = members.filter(
-    (m) => !submittedStaffIds.has(Number(m.id))
+    (m) => m.isActive !== false && !submittedStaffIds.has(Number(m.id))
   );
   $: unsubmittedCount = unsubmittedMembers.length;
 
@@ -970,7 +977,7 @@
       isUnder,
       isOver,
     };
-  });
+  }).filter((m) => m.isActive !== false || (shiftStatus === "published" && m.count > 0));
 
   /**
    * @param {string} msg
@@ -1168,6 +1175,42 @@
       const err = /** @type {any} */ (error);
       console.error("目標出勤日数の更新に失敗しました:", err);
       triggerToast(`⚠️ 更新失敗: ${err.message}`);
+    }
+  }
+
+  /**
+   * @param {number} memberId
+   * @param {boolean} isActive
+   */
+  async function toggleMemberActive(memberId, isActive) {
+    try {
+      const res = await fetch("/api/members/archive", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: memberId, isActive }),
+      });
+      if (res.ok) {
+        // Update local members array
+        members = members.map((m) => {
+          if (m.id === memberId) {
+            return { ...m, isActive };
+          }
+          return m;
+        });
+        
+        const mName = members.find((m) => m.id === memberId)?.name || "スタッフ";
+        triggerToast(
+          isActive 
+            ? `💚 ${mName}さんを有効（復職）に戻しました。` 
+            : `📁 ${mName}さんを退職処理（非表示）にしました。`
+        );
+      } else {
+        throw new Error(await res.text());
+      }
+    } catch (error) {
+      const err = /** @type {any} */ (error);
+      console.error("メンバーのステータス更新に失敗しました:", err);
+      triggerToast(`⚠️ ステータス更新失敗: ${err.message}`);
     }
   }
 
@@ -2228,20 +2271,24 @@
                       d.dateStr,
                     )}
                     {@const isClosed = isRegularClosed || isSpecialClosed}
+                    {@const cellDayNum = Number(d.dateStr.split("-")[2])}
+                    {@const cellPeriodHalf = cellDayNum <= 15 ? 'A' : 'B'}
+                    {@const cellStatus = cellPeriodHalf === 'A' ? shiftStatusA : shiftStatusB}
+                    {@const isCellPublished = cellStatus === 'published'}
+                    {@const isVisibleToUser = currentUser?.isAdmin || isCellPublished}
                     {@const allShifts = shifts.filter(
                       (s) => s.date === d.dateStr,
-                    )}
+                    ).filter(s => {
+                      if (isCellPublished) return true;
+                      const m = members.find(mem => mem.id === s.member_id);
+                      return m ? m.isActive !== false : true;
+                    })}
                     {@const todayShifts =
                       showMyShiftsOnly && currentUser
                         ? allShifts.filter(
                             (s) => s.member_id === currentUser?.id,
                           )
                         : allShifts}
-                    {@const cellDayNum = Number(d.dateStr.split("-")[2])}
-                    {@const cellPeriodHalf = cellDayNum <= 15 ? 'A' : 'B'}
-                    {@const cellStatus = cellPeriodHalf === 'A' ? shiftStatusA : shiftStatusB}
-                    {@const isCellPublished = cellStatus === 'published'}
-                    {@const isVisibleToUser = currentUser?.isAdmin || isCellPublished}
 
                     <!-- svelte-ignore a11y_click_events_have_key_events -->
                     <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -2592,49 +2639,22 @@
                   class="flex flex-col items-center justify-center w-full md:w-[450px] gap-3"
                 >
                   {#if isPastDeadline}
-                    {#if isSubmitted}
-                      <!-- 締め切り後 ＆ 提出済み ➔ ロック状態 -->
-                      <div
-                        class="w-full glass-panel p-5 border border-slate-200/60 bg-slate-50/60 rounded-3xl flex flex-col items-center gap-2 text-center shadow-sm"
+                    <!-- 締め切り後 ➔ ロック状態 -->
+                    <div
+                      class="w-full glass-panel p-5 border border-slate-200/60 bg-slate-50/60 rounded-3xl flex flex-col items-center gap-2 text-center shadow-sm"
+                    >
+                      <span
+                        class="text-xs font-bold text-slate-500 flex items-center gap-1.5"
                       >
-                        <span
-                          class="text-xs font-bold text-slate-500 flex items-center gap-1.5"
-                        >
-                          🔒 希望シフトは提出済みです（募集終了）
-                        </span>
-                        <span
-                          class="text-[10px] text-slate-400 leading-relaxed font-semibold"
-                        >
-                          提出締め切り日時 ({deadlineObj ? deadlineObj.toLocaleString() : ""})
-                          を過ぎたため、閲覧のみとなっております。変更は店長へ直接ご相談ください。
-                        </span>
-                      </div>
-                    {:else}
-                      <!-- 締め切り後 ＆ 未提出 ➔ 遅刻救済状態 -->
-                      <div
-                        class="w-full glass-panel p-5 border border-amber-200 bg-amber-50/20 rounded-3xl flex flex-col items-center gap-3 text-center shadow-sm"
+                        🔒 希望シフトの提出・編集は締め切られました
+                      </span>
+                      <span
+                        class="text-[10px] text-slate-400 leading-relaxed font-semibold"
                       >
-                        <span
-                          class="text-xs font-bold text-amber-700 flex items-center gap-1.5 animate-pulse"
-                        >
-                          ⚠️ 締め切りを過ぎています（未提出）
-                        </span>
-                        <span
-                          class="text-[10px] text-amber-600 leading-relaxed font-semibold"
-                        >
-                          現在、例外的に遅れての提出が許可されています。希望を選択して「遅れて提出する」ボタンを押してください。<br />
-                          <strong>⏰ あと {getDaysRemaining(currentPeriod)} 日で完全に締め切られ、提出できなくなります。</strong>
-                        </span>
-                        <button
-                          type="button"
-                          on:click={handleExplicitSubmit}
-                          disabled={isSubmittingShift}
-                          class="w-full py-3 bg-orange-500 hover:bg-orange-600 active:scale-[0.99] text-white text-xs font-bold rounded-2xl transition-all shadow-[0_4px_12px_rgba(249,115,22,0.2)] flex items-center justify-center gap-2 cursor-pointer border-0"
-                        >
-                          遅れて提出する (残り {getDaysRemaining(currentPeriod)} 日！)
-                        </button>
-                      </div>
-                    {/if}
+                        提出締め切り日時 ({deadlineObj ? deadlineObj.toLocaleString() : ""})
+                        を過ぎたため、閲覧のみとなっております。遅刻・変更などは店長へ直接ご連絡ください。
+                      </span>
+                    </div>
                   {:else}
                     <!-- 締め切り前 ➔ 通常提出状態 -->
                     <div
@@ -2660,7 +2680,7 @@
                             ></span>
                           </span>
                           <span class="text-emerald-600"
-                            >希望シフトは自動保存されています </span
+                            >{isSubmitted ? "希望シフト提出済み（締め切りまで修正可能）" : "希望シフトは自動保存されています "}</span
                           >
                         {/if}
                       </div>
@@ -2673,12 +2693,10 @@
                       <button
                         type="button"
                         on:click={handleExplicitSubmit}
-                        disabled={isSubmittingShift || isSubmitted}
-                        class="w-full py-3 transition-all flex items-center justify-center gap-2 text-xs font-bold rounded-2xl cursor-pointer border-0 {isSubmitted
-                          ? 'bg-emerald-100 text-emerald-700 border border-emerald-200 cursor-not-allowed'
-                          : 'bg-[#0071e3] hover:bg-[#0077f3] text-white shadow-[0_4px_12px_rgba(0,113,227,0.2)] active:scale-[0.99]'}"
+                        disabled={isSubmittingShift}
+                        class="w-full py-3 transition-all flex items-center justify-center gap-2 text-xs font-bold rounded-2xl cursor-pointer border-0 bg-[#0071e3] hover:bg-[#0077f3] text-white shadow-[0_4px_12px_rgba(0,113,227,0.2)] active:scale-[0.99]"
                       >
-                        {isSubmitted ? "確定提出済み" : "希望シフトを確定提出する"}
+                        {isSubmitted ? "提出内容を更新（再提出）" : "希望シフトを確定提出する"}
                       </button>
                     </div>
                   {/if}
@@ -2975,7 +2993,11 @@
                       isRegularClosed || specialHolidays.includes(d.dateStr)}
                     {@const todayShifts = shifts.filter(
                       (s) => s.date === d.dateStr,
-                    )}
+                    ).filter(s => {
+                      if (shiftStatus === "published") return true;
+                      const m = members.find(mem => mem.id === s.member_id);
+                      return m ? m.isActive !== false : true;
+                    })}
                     {@const val = validationResults[d.dateStr] || {
                       isValid: true,
                     }}
@@ -3107,6 +3129,86 @@
                   {/each}
                 </div>
               </div>
+
+              <!-- メンバー管理 (退職・復職) -->
+              <div class="glass-panel p-6 space-y-4 bg-white mt-6">
+                <div>
+                  <h3 class="text-sm font-bold text-slate-900 tracking-tight">
+                    スタッフ籍・退職管理
+                  </h3>
+                  <p class="text-xs text-slate-500 mt-0.5 font-medium">
+                    スタッフの在籍状況（アクティブ/退職）を管理します。
+                  </p>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-3 border-t border-slate-100">
+                  <!-- 有効なメンバー一覧 -->
+                  <div class="space-y-2.5">
+                    <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest block">
+                      在籍中のスタッフ ({members.filter(m => m.isActive !== false).length}名)
+                    </span>
+                    
+                    <div class="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                      {#each members.filter(m => m.isActive !== false) as m}
+                        <div class="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-100/80 hover:bg-slate-100/30 transition-all duration-200">
+                          <div class="flex items-center gap-2 min-w-0">
+                            <span class="text-sm select-none">{m.emoji}</span>
+                            <div class="truncate">
+                              <p class="text-xs font-bold text-slate-800 truncate">{m.name}</p>
+                              <p class="text-[9px] text-slate-400 font-medium">
+                                {#if m.roles?.includes('kitchen') && m.roles?.includes('hall')}
+                                  🍳厨 / 🛎ホ
+                                {:else if m.roles?.includes('kitchen')}
+                                  🍳キッチン
+                                {:else}
+                                  🛎ホール
+                                {/if}
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            on:click={() => toggleMemberActive(m.id, false)}
+                            class="shrink-0 text-[10px] font-bold text-rose-500 hover:text-rose-600 hover:bg-rose-50 px-2.5 py-1.5 rounded-lg border border-rose-100 hover:border-rose-200 transition-all duration-150"
+                          >
+                            籍を外す
+                          </button>
+                        </div>
+                      {/each}
+                    </div>
+                  </div>
+
+                  <!-- 退職メンバーの管理 -->
+                  <div class="space-y-2.5 border-t md:border-t-0 md:border-l border-slate-100 pt-4 md:pt-0 md:pl-6">
+                    <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest block">
+                      退職メンバーの管理 ({members.filter(m => m.isActive === false).length}名)
+                    </span>
+                    
+                    <div class="space-y-2 max-h-[220px] overflow-y-auto pr-1">
+                      {#if members.filter(m => m.isActive === false).length === 0}
+                        <p class="text-[10px] text-slate-400 text-center py-8 font-semibold">退職処理されたメンバーはいません。</p>
+                      {:else}
+                        {#each members.filter(m => m.isActive === false) as m}
+                          <div class="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-100/80 opacity-75 hover:opacity-100 hover:bg-slate-100/30 transition-all duration-200">
+                            <div class="flex items-center gap-2 min-w-0">
+                              <span class="text-sm select-none">{m.emoji}</span>
+                              <div class="truncate">
+                                <p class="text-xs font-bold text-slate-800 truncate line-through">{m.name}</p>
+                                <p class="text-[9px] text-slate-400 font-medium">退職済み</p>
+                              </div>
+                            </div>
+                            <button
+                              on:click={() => toggleMemberActive(m.id, true)}
+                              class="shrink-0 text-[10px] font-bold text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-emerald-100 hover:border-emerald-200 transition-all duration-150"
+                            >
+                              有効に戻す
+                            </button>
+                          </div>
+                        {/each}
+                      {/if}
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         {/if}
@@ -3187,7 +3289,7 @@
           {monthNum}月{dayNum}日 のシフト詳細
         </h4>
 
-        {#if currentUser?.isAdmin}
+        {#if currentUser?.isAdmin && activeTab === "manager"}
           <!-- 管理者（店長）向け編集ビュー -->
           <div
             class="bg-slate-50 p-4 rounded-xl border border-slate-100 flex items-center justify-between mb-5 text-xs font-semibold"
@@ -3328,7 +3430,7 @@
                   class="w-full bg-slate-50 border border-slate-200 text-xs font-semibold rounded-xl px-3 py-2.5 text-slate-700 focus:outline-none focus:border-[#0071e3]"
                 >
                   <option value="">＋ メンバーの選択</option>
-                  {#each members as m}
+                  {#each members.filter(m => m.isActive !== false) as m}
                     {#each m.roles || [m.role] as r}
                       <option value="{m.id}:{r}"
                         >{m.emoji}

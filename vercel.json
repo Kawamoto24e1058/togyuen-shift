@@ -3,6 +3,7 @@
     { "source": "/api/shifts/:subpath", "destination": "/api/shifts?subpath=:subpath" },
     { "source": "/api/auth/:subpath", "destination": "/api/auth?subpath=:subpath" },
     { "source": "/api/members/update", "destination": "/api/members?action=update" },
+    { "source": "/api/members/archive", "destination": "/api/members?action=archive" },
     { "source": "/callback", "destination": "/index.html" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],
@@ -18,11 +19,11 @@
   "crons": [
     {
       "path": "/api/cron-remind",
-      "schedule": "0 12 10,25 * *"
+      "schedule": "0 3 10,25 * *"
     },
     {
       "path": "/api/cron-publish",
-      "schedule": "0 12 11,26 * *"
+      "schedule": "0 15 10,25 * *"
     }
   ]
 }

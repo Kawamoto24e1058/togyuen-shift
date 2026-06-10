@@ -1,1 +1,236 @@
-[]
+[
+  {
+    "date": "2026-06-16",
+    "member_id": 1,
+    "member_name": "はる",
+    "role": "hall",
+    "start_time": "17:30",
+    "end_time": "22:00",
+    "isLocked": false
+  },
+  {
+    "date": "2026-06-16",
+    "member_id": 2,
+    "member_name": "arisa",
+    "role": "kitchen",
+    "start_time": "17:00",
+    "end_time": "22:00",
+    "isLocked": false
+  },
+  {
+    "date": "2026-06-18",
+    "member_id": 1,
+    "member_name": "はる",
+    "role": "hall",
+    "start_time": "17:30",
+    "end_time": "22:00",
+    "isLocked": false
+  },
+  {
+    "date": "2026-06-18",
+    "member_id": 2,
+    "member_name": "arisa",
+    "role": "kitchen",
+    "start_time": "17:00",
+    "end_time": "22:00",
+    "isLocked": false
+  },
+  {
+    "date": "2026-06-19",
+    "member_id": 1,
+    "member_name": "はる",
+    "role": "hall",
+    "start_time": "17:30",
+    "end_time": "22:00",
+    "isLocked": false
+  },
+  {
+    "date": "2026-06-19",
+    "member_id": 2,
+    "member_name": "arisa",
+    "role": "kitchen",
+    "start_time": "17:00",
+    "end_time": "22:00",
+    "isLocked": false
+  },
+  {
+    "date": "2026-06-20",
+    "member_id": 1,
+    "member_name": "はる",
+    "role": "hall",
+    "start_time": "17:30",
+    "end_time": "22:00",
+    "isLocked": false
+  },
+  {
+    "date": "2026-06-20",
+    "member_id": 2,
+    "member_name": "arisa",
+    "role": "kitchen",
+    "start_time": "17:00",
+    "end_time": "22:00",
+    "isLocked": false
+  },
+  {
+    "date": "2026-06-21",
+    "member_id": 1,
+    "member_name": "はる",
+    "role": "hall",
+    "start_time": "17:30",
+    "end_time": "22:00",
+    "isLocked": false
+  },
+  {
+    "date": "2026-06-21",
+    "member_id": 2,
+    "member_name": "arisa",
+    "role": "kitchen",
+    "start_time": "17:00",
+    "end_time": "22:00",
+    "isLocked": false
+  },
+  {
+    "date": "2026-06-22",
+    "member_id": 1,
+    "member_name": "はる",
+    "role": "hall",
+    "start_time": "17:30",
+    "end_time": "22:00",
+    "isLocked": false
+  },
+  {
+    "date": "2026-06-22",
+    "member_id": 2,
+    "member_name": "arisa",
+    "role": "kitchen",
+    "start_time": "17:00",
+    "end_time": "22:00",
+    "isLocked": false
+  },
+  {
+    "date": "2026-06-23",
+    "member_id": 1,
+    "member_name": "はる",
+    "role": "hall",
+    "start_time": "17:30",
+    "end_time": "22:00",
+    "isLocked": false
+  },
+  {
+    "date": "2026-06-23",
+    "member_id": 2,
+    "member_name": "arisa",
+    "role": "kitchen",
+    "start_time": "17:00",
+    "end_time": "22:00",
+    "isLocked": false
+  },
+  {
+    "date": "2026-06-25",
+    "member_id": 1,
+    "member_name": "はる",
+    "role": "hall",
+    "start_time": "17:30",
+    "end_time": "22:00",
+    "isLocked": false
+  },
+  {
+    "date": "2026-06-25",
+    "member_id": 2,
+    "member_name": "arisa",
+    "role": "kitchen",
+    "start_time": "17:00",
+    "end_time": "22:00",
+    "isLocked": false
+  },
+  {
+    "date": "2026-06-26",
+    "member_id": 1,
+    "member_name": "はる",
+    "role": "hall",
+    "start_time": "17:30",
+    "end_time": "22:00",
+    "isLocked": false
+  },
+  {
+    "date": "2026-06-26",
+    "member_id": 2,
+    "member_name": "arisa",
+    "role": "kitchen",
+    "start_time": "17:00",
+    "end_time": "22:00",
+    "isLocked": false
+  },
+  {
+    "date": "2026-06-27",
+    "member_id": 1,
+    "member_name": "はる",
+    "role": "hall",
+    "start_time": "17:30",
+    "end_time": "22:00",
+    "isLocked": false
+  },
+  {
+    "date": "2026-06-27",
+    "member_id": 2,
+    "member_name": "arisa",
+    "role": "kitchen",
+    "start_time": "17:00",
+    "end_time": "22:00",
+    "isLocked": false
+  },
+  {
+    "date": "2026-06-28",
+    "member_id": 1,
+    "member_name": "はる",
+    "role": "hall",
+    "start_time": "17:30",
+    "end_time": "22:00",
+    "isLocked": false
+  },
+  {
+    "date": "2026-06-28",
+    "member_id": 2,
+    "member_name": "arisa",
+    "role": "kitchen",
+    "start_time": "17:00",
+    "end_time": "22:00",
+    "isLocked": false
+  },
+  {
+    "date": "2026-06-29",
+    "member_id": 1,
+    "member_name": "はる",
+    "role": "hall",
+    "start_time": "17:30",
+    "end_time": "22:00",
+    "isLocked": false
+  },
+  {
+    "date": "2026-06-29",
+    "member_id": 2,
+    "member_name": "arisa",
+    "role": "kitchen",
+    "start_time": "17:00",
+    "end_time": "22:00",
+    "isLocked": false
+  },
+  {
+    "date": "2026-06-30",
+    "member_id": 1,
+    "member_name": "はる",
+    "role": "hall",
+    "start_time": "17:30",
+    "end_time": "22:00",
+    "isLocked": false
+  },
+  {
+    "date": "2026-06-30",
+    "member_id": 2,
+    "member_name": "arisa",
+    "role": "kitchen",
+    "start_time": "17:00",
+    "end_time": "22:00",
+    "isLocked": false
+  }
+]

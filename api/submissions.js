@@ -47,52 +47,33 @@ export default async function handler(req, res) {
         }
       }
 
-      // 猶予期間（5日間）の判定（B期間なら16日以降、A期間なら1日以降は完全に打ち切り）
-      const isPeriodCutoff = (periodStr) => {
-        const parts = periodStr.split("-");
-        const year = Number(parts[0]);
-        const month = Number(parts[1]);
-        const half = parts[2];
-        const now = new Date();
-        if (half === "B") {
-          return now >= new Date(year, month - 1, 16);
-        } else {
-          return now >= new Date(year, month - 1, 1);
-        }
-      };
-
-      if (isPeriodCutoff(period)) {
-        return res.status(403).send('募集期間が完全に終了（打ち切り）しているため、スケジュール希望は提出できません。');
-      }
-
-      // 動的締め切り計算 (当月後半なら10日、翌月前半なら25日)
+      // 動的締め切り計算 (当月後半Bなら10日、翌月前半Aなら25日) - JSTタイムゾーンセーフ
       const getDeadlineForPeriod = (periodStr) => {
         const parts = periodStr.split("-");
         const year = Number(parts[0]);
         const month = Number(parts[1]);
         const half = parts[2];
+        let dateStr;
         if (half === "B") {
-          return new Date(year, month - 1, 10, 23, 59, 59);
+          dateStr = `${year}-${String(month).padStart(2, '0')}-10T23:59:59+09:00`;
         } else {
-          return new Date(year, month - 2, 25, 23, 59, 59);
+          const prevDate = new Date(year, month - 2, 1);
+          const prevYear = prevDate.getFullYear();
+          const prevMonth = prevDate.getMonth() + 1;
+          dateStr = `${prevYear}-${String(prevMonth).padStart(2, '0')}-25T23:59:59+09:00`;
         }
+        return new Date(dateStr);
       };
 
       const deadline = getDeadlineForPeriod(period);
       const now = new Date();
       const isPastDeadline = now > deadline;
 
+      if (isPastDeadline) {
+        return res.status(403).send('提出締め切り日時を過ぎているため、スケジュール希望は提出・変更できません。');
+      }
+
       const docId = `${staffId}_${period}`;
-      const existingDoc = await db.collection('submissions').doc(docId).get();
-      let wasAlreadySubmitted = false;
-      if (existingDoc.exists) {
-        wasAlreadySubmitted = existingDoc.data().isSubmitted === true;
-      }
-
-      if (isPastDeadline && wasAlreadySubmitted) {
-        return res.status(403).send('提出締め切り日時を過ぎており、既に提出済みのスケジュール希望は変更できません。');
-      }
-
       const newSubmission = {
         staffId: Number(staffId),
         period,
@@ -104,6 +85,69 @@ export default async function handler(req, res) {
       };
 
       await db.collection('submissions').doc(docId).set(newSubmission, { merge: true });
+
+      // 【自動生成連動】全員分が集まった場合、または既に公開済みの期間での修正の場合、自動的にシフト表を再生成して公開更新する
+      if (payload.isSubmitted === true) {
+        try {
+          const membersSnap = await db.collection('members').get();
+          const activeMembers = [];
+          membersSnap.forEach(doc => {
+            const m = doc.data();
+            if (m.isActive !== false) {
+              activeMembers.push(Number(doc.id));
+            }
+          });
+
+          const subsSnap = await db.collection('submissions')
+            .where('period', '==', period)
+            .get();
+          
+          const submittedIds = new Set();
+          subsSnap.forEach(doc => {
+            const s = doc.data();
+            if (s.isSubmitted === true && s.staffId) {
+              submittedIds.add(Number(s.staffId));
+            }
+          });
+
+          const allSubmitted = activeMembers.every(id => submittedIds.has(id));
+
+          const statusDoc = await db.collection('shift_status').doc(period).get();
+          const isPublished = statusDoc.exists && statusDoc.data().status === 'published';
+
+          if (isPublished || (allSubmitted && activeMembers.length > 0)) {
+            console.info(`[API Submissions] Triggering auto-generate & publish for ${period}...`);
+            const shiftsModule = await import('./shifts.js');
+            const shiftsHandler = shiftsModule.default;
+
+            const mockRes = {
+              status: (code) => mockRes,
+              send: (msg) => { console.info(`[Auto-Generate Output] send: ${msg}`); },
+              json: (data) => { console.info(`[Auto-Generate Output] json: ${JSON.stringify(data)}`); }
+            };
+
+            // 自動生成を実行
+            await shiftsHandler({
+              method: 'POST',
+              url: '/api/shifts/generate',
+              query: {},
+              body: { period }
+            }, mockRes);
+
+            // 公開処理を実行
+            await shiftsHandler({
+              method: 'POST',
+              url: '/api/shifts/publish',
+              query: {},
+              body: { period }
+            }, mockRes);
+            
+            console.info(`[API Submissions] Auto-generation and publication completed!`);
+          }
+        } catch (e) {
+          console.error('[API Submissions] Auto-generation trigger failed:', e);
+        }
+      }
 
       // 【自動競合排除】もし提出されたスケジュールの中で「出勤不可 (false)」があり、
       // 既にその日に店長のアサインが存在している場合、そのアサインを自動削除・更新します。

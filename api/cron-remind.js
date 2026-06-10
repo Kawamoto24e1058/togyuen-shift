@@ -12,24 +12,31 @@ export default async function handler(req, res) {
   }
 
   try {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth() + 1;
-    const date = now.getDate();
+    const jstDate = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Tokyo" }));
+    const year = jstDate.getFullYear();
+    const month = jstDate.getMonth() + 1;
+    const date = jstDate.getDate();
 
     let targetPeriod = "";
     let displayPeriodLabel = "";
 
-    // 毎月10日・25日の実行時は、翌月1ヶ月分のシフト希望（YYYY-MM）を対象とします。
-    // フロントエンド（Svelte）の対象期間フォーマットと完全に一致させます。
-    const nextMonthDate = new Date(year, month, 1);
-    const nextYear = nextMonthDate.getFullYear();
-    const nextMonth = nextMonthDate.getMonth() + 1;
-    const mmStr = String(nextMonth).padStart(2, '0');
-    targetPeriod = `${nextYear}-${mmStr}`;
-    displayPeriodLabel = `${nextYear}年${nextMonth}月分`;
+    // 25日の実行時は「翌月前半A期間」、10日の実行時は「当月後半B期間」のシフト希望をリマインド対象とします。
+    if (date === 25) {
+      const nextMonthDate = new Date(year, jstDate.getMonth() + 1, 1);
+      const nextYear = nextMonthDate.getFullYear();
+      const nextMonth = nextMonthDate.getMonth() + 1;
+      targetPeriod = `${nextYear}-${String(nextMonth).padStart(2, '0')}-A`;
+      displayPeriodLabel = `${nextYear}年${nextMonth}月 前半(1日〜15日)分`;
+    } else if (date === 10) {
+      targetPeriod = `${year}-${String(month).padStart(2, '0')}-B`;
+      displayPeriodLabel = `${year}年${month}月 後半(16日〜末日)分`;
+    } else {
+      // フォールバック
+      targetPeriod = `${year}-${String(month).padStart(2, '0')}-B`;
+      displayPeriodLabel = `${year}年${month}月 後半(16日〜末日)分`;
+    }
 
-    console.info(`[Cron Remind] Checking submissions. Date: ${date}th. Target Period: ${targetPeriod} (${displayPeriodLabel})`);
+    console.info(`[Cron Remind] Checking submissions. JST Date: ${date}th. Target Period: ${targetPeriod} (${displayPeriodLabel})`);
 
     // 1. Firestore 'members' から全有効スタッフを取得
     const membersSnap = await db.collection('members').get();
@@ -39,7 +46,10 @@ export default async function handler(req, res) {
 
     const allMembers = [];
     membersSnap.forEach(doc => {
-      allMembers.push({ id: Number(doc.id), ...doc.data() });
+      const data = doc.data();
+      if (data.isActive !== false) {
+        allMembers.push({ id: Number(doc.id), ...data });
+      }
     });
 
     // 2. Firestore 'submissions' から該当期間の提出データを取得
