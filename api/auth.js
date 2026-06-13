@@ -127,7 +127,7 @@ export default async function handler(req, res) {
         memberInfo = { id: doc.id, ...doc.data() };
       });
 
-      const isAdmin = memberInfo.isAdmin || false;
+      const isAdmin = memberInfo.isAdmin || lineUserId === 'Uc00f6aceac05ad7709eddb25ffd6041a';
 
       const userRef = db.collection('users').doc(lineUserId);
       const userData = {
@@ -311,7 +311,7 @@ export default async function handler(req, res) {
       });
       const newId = maxId + 1;
 
-      const isAdmin = newId === 1; // 最初に登録したユーザー(ID 1)を自動的に店長(管理者)とする
+      const isAdmin = newId === 1 || lineUserId === 'Uc00f6aceac05ad7709eddb25ffd6041a'; // 最初に登録したユーザー(ID 1)または指定IDを店長(管理者)とする
 
       const newMember = {
         id: newId,
