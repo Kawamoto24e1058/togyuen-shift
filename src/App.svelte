@@ -950,15 +950,30 @@
       if (cachedUser) {
         try {
           const parsedUser = JSON.parse(cachedUser);
-          if (parsedUser) {
-            currentUser = parsedUser;
+          if (parsedUser && parsedUser.id) {
+            // Firestoreから取得した最新メンバーリストでキャッシュを更新（isAdminなどを最新化）
+            const freshMember = members.find(m => m.id === parsedUser.id);
+            if (freshMember) {
+              const refreshedUser = {
+                ...parsedUser,
+                ...freshMember,
+                avatar: parsedUser.avatar || freshMember.emoji || '👩‍💼',
+                isAdmin: !!freshMember.isAdmin
+              };
+              currentUser = refreshedUser;
+              // キャッシュを最新データで上書き
+              localStorage.setItem("currentUser", JSON.stringify(refreshedUser));
+            } else {
+              // メンバーリストに存在しなくなった場合はキャッシュをクリア
+              console.warn('[App] Cached user not found in members. Clearing session.');
+              localStorage.removeItem("currentUser");
+            }
 
-            // バックグラウンドでWeb Push購読を確認・更新
-            requestPushSubscription(parsedUser.id).catch(console.error);
-
-            if (parsedUser.id) {
-              selectedStaffId = parsedUser.id;
-              loadStaffSubmissions(parsedUser.id).catch(console.error);
+            if (currentUser) {
+              // バックグラウンドでWeb Push購読を確認・更新
+              requestPushSubscription(currentUser.id).catch(console.error);
+              selectedStaffId = currentUser.id;
+              loadStaffSubmissions(currentUser.id).catch(console.error);
             }
           }
         } catch (e) {
