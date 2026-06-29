@@ -109,6 +109,7 @@ export default async function handler(req, res) {
       membersSnap.forEach(doc => {
         const data = doc.data();
         if (data.isActive === false) return; // Skip inactive members!
+        if (data.isAdmin === true) return; // Exclude administrators from automated assignment!
         let targetDays = data.targetDays !== undefined ? Number(data.targetDays) : 5;
         if (targetDays > 7) {
           targetDays = Math.floor(targetDays / 2);

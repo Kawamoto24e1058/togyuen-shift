@@ -55,9 +55,48 @@ export default async function handler(req, res) {
   }
 
   // ==========================================
+  // DISPATCH: update-admin (POST)
+  // ==========================================
+  if (action === 'update-admin') {
+    try {
+      const { id, isAdmin } = req.body || {};
+      if (id === undefined || isAdmin === undefined) {
+        return res.status(400).send('必須パラメータ（id, isAdmin）が不足しています。');
+      }
+
+      const memberIdStr = String(id);
+      console.info(`[API Members Update Admin] Updating isAdmin for member ${memberIdStr} to ${isAdmin}`);
+
+      const docRef = db.collection('members').doc(memberIdStr);
+      const doc = await docRef.get();
+
+      if (!doc.exists) {
+        return res.status(404).send('指定されたメンバーが見つかりません。');
+      }
+
+      await docRef.update({
+        isAdmin: Boolean(isAdmin),
+        updatedAt: new Date().toISOString()
+      });
+
+      console.info(`[API Members Update Admin] Successfully updated member ${memberIdStr}!`);
+
+      return res.status(200).json({
+        success: true,
+        message: '管理者権限を更新しました。',
+        id: Number(id),
+        isAdmin: Boolean(isAdmin)
+      });
+    } catch (err) {
+      console.error('[API Members Update Admin] Error:', err);
+      return res.status(500).send('管理者権限の更新に失敗しました。');
+    }
+  }
+
+  // ==========================================
   // DISPATCH: update (POST)
   // ==========================================
-  if (action === 'update' || (req.method === 'POST' && action !== 'archive')) {
+  if (action === 'update' || (req.method === 'POST' && action !== 'archive' && action !== 'update-admin')) {
     try {
       const { id, targetDays } = req.body || {};
       if (!id || targetDays === undefined) {
@@ -106,15 +145,19 @@ export default async function handler(req, res) {
         const data = doc.data();
         members.push({
           id: Number(doc.id),
-          name: data.name,
+          name: data.fullName || data.name,
+          initialChar: data.shortName || data.initialChar || null,
           role: data.role || 'hall',
           roles: data.roles || [data.role || 'hall'],
-          status: data.status || 'regular',
+          status: data.isTrainee ? 'trainee' : (data.status || 'regular'),
+          isTrainee: data.isTrainee !== undefined ? data.isTrainee : (data.status === 'trainee'),
+          isActive: data.isActive !== false,
+          isAdmin: data.isAdmin === true,
           emoji: data.roles?.includes('kitchen') ? '👨‍🍳' : '👩‍💼',
           color: data.roles?.includes('kitchen') ? '#ff7043' : '#ffb300',
           lineUserId: data.lineUserId || null,
           targetDays: data.targetDays || 10,
-          isActive: data.isActive !== false // Default to true
+          passcode: data.passcode || '8888'
         });
       });
 

@@ -1,9 +1,18 @@
 // api/cron-remind.js
+import webPush from 'web-push';
 import { db } from './_lib/firebase-admin.js';
+
+const vapidPublicKey = process.env.VAPID_PUBLIC_KEY || 'BEMmMznggL_geY668zogdssbLSD7-ofW34TrpClleOcR5HzaJiCkUPT0ctBtY5TBvuep5Sb2eUy544DvH7iOH7w';
+const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY || '7jyqw9la5DeyVlbi9SqU9oLvjC18p3vjyCrSjokIPjc';
+
+webPush.setVapidDetails(
+  'mailto:info@togyuen.com',
+  vapidPublicKey,
+  vapidPrivateKey
+);
 
 export default async function handler(req, res) {
   // セキュリティ対策: Vercel Cron からの正規なリクエストかチェック (Vercel が自動付与するヘッダー)
-  // ローカル開発やテスト目的の場合はアクセス制限をスキップできるようにします
   const isCron = req.headers['x-vercel-cron'] === 'true';
   const isLocal = process.env.NODE_ENV === 'development' || !process.env.VERCEL;
   
@@ -31,7 +40,7 @@ export default async function handler(req, res) {
       targetPeriod = `${year}-${String(month).padStart(2, '0')}-B`;
       displayPeriodLabel = `${year}年${month}月 後半(16日〜末日)分`;
     } else {
-      // フォールバック
+      // フォールバック (デバッグ・手動起動時用)
       targetPeriod = `${year}-${String(month).padStart(2, '0')}-B`;
       displayPeriodLabel = `${year}年${month}月 後半(16日〜末日)分`;
     }
@@ -72,7 +81,7 @@ export default async function handler(req, res) {
     if (unsubmittedMembers.length === 0) {
       console.info('[Cron Remind] All members have submitted. No reminder needed.');
       return res.status(200).json({
-        message: '全員提出済みです。LINEグループ通知をスキップしました。',
+        message: '全員提出済みです。プッシュ通知をスキップしました。',
         reminded: false
       });
     }
@@ -80,56 +89,71 @@ export default async function handler(req, res) {
     const namesList = unsubmittedMembers.map(m => `・${m.name} さん`).join('\n');
     console.info(`[Cron Remind] Unsubmitted staff found:\n${namesList}`);
 
-    // 本番環境のアプリURLを取得
-    const appUrl = process.env.LINE_REDIRECT_URI 
-      ? new URL(process.env.LINE_REDIRECT_URI).origin 
-      : 'https://togyuen-shift.vercel.app'; // フォールバック用
+    // 4. Web Push通知の送信
+    let successPushes = 0;
+    let failedPushes = 0;
+    const unsubscribedEndpoints = []; // 無効になったサブスクリプションを追跡
 
-    // 4. LINE Messaging API 用のメッセージ本文を作成
-    const message = `【桃牛苑シフト提出リマインド】\n本日${date}日はシフト希望の締め切り日です。まだ提出されていない方は、お手数ですがアプリから入力をお願いします。\n\n▼未提出のスタッフ\n${namesList}\n\nアプリを開く: ${appUrl}`;
-
-    // 5. LINE Messaging API を使って既存のLINEグループへプッシュ送信
-    const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-    const groupId = process.env.LINE_GROUP_ID;
-
-    if (!channelAccessToken || !groupId) {
-      console.warn('[Cron Remind] LINE_CHANNEL_ACCESS_TOKEN or LINE_GROUP_ID is missing in environment variables. Skipping real Messaging API POST request.');
-      return res.status(200).json({
-        message: '未提出者を検出しましたが、LINE Messaging API環境変数が未設定のため通知をスキップしました。',
-        reminded: false,
-        unsubmitted: unsubmittedMembers.map(m => m.name)
-      });
-    }
-
-    // LINE Messaging API Push Message POST リクエストを送信
-    const response = await fetch('https://api.line.me/v2/bot/message/push', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${channelAccessToken}`
-      },
-      body: JSON.stringify({
-        to: groupId,
-        messages: [
-          {
-            type: 'text',
-            text: message
-          }
-        ]
-      })
+    const payload = JSON.stringify({
+      title: '🍎 桃牛苑 シフト提出のお願い',
+      body: `本日${date}日はシフト希望の締め切り日です。まだ提出されていない方は、お手数ですがアプリから入力をお願いします。`,
+      url: '/'
     });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      throw new Error(`LINE Messaging API Push responded with status ${response.status}: ${errText}`);
+    for (const member of unsubmittedMembers) {
+      const subscriptions = member.pushSubscriptions || [];
+      if (subscriptions.length === 0) {
+        console.info(`[Cron Remind] Member ${member.name} (ID: ${member.id}) has no Web Push subscriptions.`);
+        continue;
+      }
+
+      // エンドポイント重複防止のために一意にする
+      const uniqueSubscriptions = Array.from(new Map(subscriptions.map(sub => [sub.endpoint, sub])).values());
+
+      for (const subscription of uniqueSubscriptions) {
+        try {
+          await webPush.sendNotification(subscription, payload);
+          successPushes++;
+          console.info(`[Cron Remind] Web Push sent successfully to ${member.name} (endpoint: ${subscription.endpoint.substring(0, 30)}...)`);
+        } catch (error) {
+          failedPushes++;
+          console.error(`[Cron Remind] Failed to send Web Push to ${member.name}:`, error.message);
+          
+          // 410 (Gone) or 404 (Not Found) の場合、すでに購読解除されているか無効になっているため削除対象に追加
+          if (error.statusCode === 410 || error.statusCode === 404) {
+            unsubscribedEndpoints.push({ memberId: member.id, endpoint: subscription.endpoint });
+          }
+        }
+      }
     }
 
-    console.info('[Cron Remind] LINE Messaging API Push reminder successfully sent to group.');
+    // 5. 無効になった購読情報をFirestoreから削除 (バッチ処理)
+    if (unsubscribedEndpoints.length > 0) {
+      const memberIdsToUpdate = [...new Set(unsubscribedEndpoints.map(item => item.memberId))];
+      for (const mId of memberIdsToUpdate) {
+        const memberRef = db.collection('members').doc(String(mId));
+        const doc = await memberRef.get();
+        if (doc.exists) {
+          const currentSubs = doc.data().pushSubscriptions || [];
+          const endpointsToRemove = new Set(unsubscribedEndpoints.filter(item => item.memberId === mId).map(item => item.endpoint));
+          const updatedSubs = currentSubs.filter(sub => !endpointsToRemove.has(sub.endpoint));
+          
+          await memberRef.update({
+            pushSubscriptions: updatedSubs,
+            updatedAt: new Date().toISOString()
+          });
+          console.info(`[Cron Remind] Cleaned up ${endpointsToRemove.size} expired subscriptions for member ${mId}.`);
+        }
+      }
+    }
+
     return res.status(200).json({
-      message: '未提出スタッフの抽出およびLINE Messaging APIプッシュ通知の送信に成功しました。',
+      message: '未提出スタッフへのWebプッシュ通知送信処理が完了しました。',
       reminded: true,
       unsubmittedCount: unsubmittedMembers.length,
-      unsubmitted: unsubmittedMembers.map(m => m.name)
+      unsubmitted: unsubmittedMembers.map(m => m.name),
+      successPushes,
+      failedPushes
     });
 
   } catch (err) {

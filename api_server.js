@@ -76,6 +76,9 @@ const server = http.createServer(async (req, res) => {
     } else if (apiRoute === 'members/archive') {
       req.query = { ...parsedUrl.query, action: 'archive' };
       apiRoute = 'members';
+    } else if (apiRoute === 'members/update-admin') {
+      req.query = { ...parsedUrl.query, action: 'update-admin' };
+      apiRoute = 'members';
     }
 
     let modulePath = path.resolve(`./api/${apiRoute}.js`);

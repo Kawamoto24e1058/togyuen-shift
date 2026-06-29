@@ -21,16 +21,14 @@
     Flame,
   } from "lucide-svelte";
 
-  // Firebase FCMヘルパー
-  import {
-    requestNotificationPermissionAndSaveToken,
-    onForegroundMessage,
-  } from "./firebase.js";
+  // Web Push VAPID public key
+  import { VAPID_KEY } from "./firebase.js";
 
   /**
    * @typedef {Object} Member
    * @property {number} id
    * @property {string} name
+   * @property {string} [initialChar]
    * @property {string} role
    * @property {string[]} roles
    * @property {string} status
@@ -42,6 +40,8 @@
    * @property {string} [lineUserId]
    * @property {string} [avatar]
    * @property {boolean} [isAdmin]
+   * @property {boolean} [isActive]
+   * @property {string} [passcode]
    */
 
   /**
@@ -55,23 +55,28 @@
    */
 
   // 初期メンバーマスタ (実環境移行のため空配列)
+  /** @type {Member[]} */
   const INITIAL_MEMBERS = [];
 
   // 初期シフト (実環境移行のため空配列)
+  /** @type {Shift[]} */
   const DEFAULT_SHIFTS = [];
 
-  // 動的にデフォルト募集期間を判定するヘルパー
-  // 締め切り時刻（10日の終わり、25日の終わり）を過ぎたら、自動的に次のシフト希望期間にスライドする
-  function getDefaultPeriod(now = new Date()) {
+  function getCurrentMonthPeriod(now = new Date()) {
+    const jstDate = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Tokyo" }));
+    return `${jstDate.getFullYear()}-${String(jstDate.getMonth() + 1).padStart(2, "0")}`;
+  }
+
+  function getSubmissionPeriod(now = new Date()) {
     const jstDate = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Tokyo" }));
     const year = jstDate.getFullYear();
     const month = jstDate.getMonth() + 1; // 1-12
     const day = jstDate.getDate();
-    
+
     if (day <= 10) {
       // 10日が終わるまでは当月の後半B期間
       return `${year}-${String(month).padStart(2, "0")}-B`;
-    } else if (day >= 11 && day <= 25) {
+    } else if (day <= 25) {
       // 11日〜25日が終わるまでは翌月の前半A期間
       const nextDate = new Date(year, jstDate.getMonth() + 1, 1);
       const nextYear = nextDate.getFullYear();
@@ -86,8 +91,95 @@
     }
   }
 
+  /**
+   * @param {string} periodStr
+   */
+  function getDeadlineInfo(periodStr) {
+    if (!periodStr) return null;
+    const parts = periodStr.split("-");
+    if (parts.length < 3) return null;
+    
+    const year = Number(parts[0]);
+    const month = Number(parts[1]);
+    const half = parts[2];
+    
+    const now = new Date();
+    const jstDate = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Tokyo" }));
+    const currentYear = jstDate.getFullYear();
+    const currentMonthNum = jstDate.getMonth() + 1;
+
+    if (half === "B") {
+      const isSameMonth = (currentYear === year && currentMonthNum === month);
+      const deadlineDate = new Date(year, month - 1, 10, 23, 59, 59);
+      const isPast = jstDate > deadlineDate;
+
+      if (isPast) {
+        return {
+          type: "warning",
+          title: `${month}月後半シフト希望提出`,
+          mainLabel: "⚠️ 提出期限を過ぎています！",
+          value: `${month}月10日 23:59 締切`,
+          description: "期限を過ぎたため、本アプリからの提出や変更はロックされています。シフト希望がある場合は、店長のLINE宛てに直接メッセージを送信してください。"
+        };
+      } else {
+        return {
+          type: "normal",
+          title: `${month}月後半シフト希望提出`,
+          mainLabel: "📅 シフト希望提出締め切り日時",
+          value: `${month}月10日 23:59 まで`,
+          description: "※期限厳守でのご提出をお願いいたします。締め切り後は変更ができなくなりますのでご注意ください。"
+        };
+      }
+    } else {
+      const prevMonthDate = new Date(year, month - 2, 1);
+      const prevMonth = prevMonthDate.getMonth() + 1;
+      const prevYear = prevMonthDate.getFullYear();
+
+      const deadlineDate = new Date(prevYear, prevMonth - 1, 25, 23, 59, 59);
+      const isPast = jstDate > deadlineDate;
+
+      if (isPast) {
+        return {
+          type: "warning",
+          title: `${month}月前半シフト希望提出`,
+          mainLabel: "⚠️ 提出期限を過ぎています！",
+          value: `${prevMonth}月25日 23:59 締切`,
+          description: "期限を過ぎたため、本アプリからの提出や変更はロックされています。シフト希望がある場合は、店長のLINE宛てに直接メッセージを送信してください。"
+        };
+      } else {
+        return {
+          type: "normal",
+          title: `${month}月前半シフト希望提出`,
+          mainLabel: "📅 シフト希望提出締め切り日時",
+          value: `${prevMonth}月25日 23:59 まで`,
+          description: "※期限厳守でのご提出をお願いいたします。締め切り後は変更ができなくなりますのでご注意ください。"
+        };
+      }
+    }
+  }
+
+  /**
+   * @param {string} tab
+   */
+  async function changeTab(tab) {
+    activeTab = tab;
+    const now = new Date();
+    
+    if (tab === "calendar") {
+      currentPeriod = getCurrentMonthPeriod(now);
+    } else if (tab === "submissions") {
+      currentPeriod = getSubmissionPeriod(now);
+    } else if (tab === "manager") {
+      if (currentPeriod.split("-").length < 3) {
+        currentPeriod = getSubmissionPeriod(now);
+      }
+    }
+    
+    await handlePeriodChange();
+  }
+
   // 月度ステート
-  let currentPeriod = getDefaultPeriod();
+  let currentPeriod = getCurrentMonthPeriod();
 
   // 日付リストを動的に生成するヘルパー関数 (前半: 1-15日, 後半: 16-末日)
   /**
@@ -223,6 +315,10 @@
    */
   function getMemberInitial(name, membersList = []) {
     if (!name) return "";
+    const foundMember = membersList.find((m) => m.name === name);
+    if (foundMember && foundMember.initialChar) {
+      return foundMember.initialChar;
+    }
     const firstChar = name.charAt(0);
     const collisions = membersList.filter(
       (m) => m.name && m.name.charAt(0) === firstChar && m.name !== name,
@@ -272,6 +368,172 @@
   let toastMessage = null;
   let activeQuickMenuDate = null; // iOS風臨時休業選択用クイックポップアップ状態
 
+  // 個人シフト希望確認モーダル用ステート
+  /** @type {Member | null} */
+  let selectedModalMember = null;
+
+  $: currentPeriodLabel = (() => {
+    const matched = selectablePeriods.find(p => p.value === currentPeriod);
+    return matched ? matched.label : currentPeriod;
+  })();
+
+  $: modalAvailabilities = (() => {
+    const member = selectedModalMember;
+    if (!member) return {};
+    const memberId = member.id;
+    const baseMonth = currentPeriod.substring(0, 7);
+    if (currentPeriod.length === 7) {
+      const subA = allSubmissions.find(s => s.staffId === memberId && s.period === `${baseMonth}-A`);
+      const subB = allSubmissions.find(s => s.staffId === memberId && s.period === `${baseMonth}-B`);
+      return {
+        ...(subA?.availabilities || {}),
+        ...(subB?.availabilities || {})
+      };
+    } else {
+      const sub = allSubmissions.find(s => s.staffId === memberId && s.period === currentPeriod);
+      return sub?.availabilities || {};
+    }
+  })();
+
+  $: modalSubmitPattern = (() => {
+    const member = selectedModalMember;
+    if (!member) return "A";
+    const memberId = member.id;
+    const baseMonth = currentPeriod.substring(0, 7);
+    const sub = allSubmissions.find(s => s.staffId === memberId && s.period.startsWith(baseMonth));
+    return sub?.submitPattern || "A";
+  })();
+
+  $: isModalSubmitted = (() => {
+    const member = selectedModalMember;
+    if (!member) return false;
+    const memberId = member.id;
+    const baseMonth = currentPeriod.substring(0, 7);
+    if (currentPeriod.length === 7) {
+      const subA = allSubmissions.find(s => s.staffId === memberId && s.period === `${baseMonth}-A`);
+      const subB = allSubmissions.find(s => s.staffId === memberId && s.period === `${baseMonth}-B`);
+      return (subA?.isSubmitted === true) && (subB?.isSubmitted === true);
+    } else {
+      const sub = allSubmissions.find(s => s.staffId === memberId && s.period === currentPeriod);
+      return sub?.isSubmitted === true;
+    }
+  })();
+
+  $: modalGridCells = generateGridCells(currentPeriod);
+
+  /**
+   * @param {Member} member
+   */
+  function openWishPreviewModal(member) {
+    selectedModalMember = member;
+  }
+
+  let loginPasscode = "";
+  let loginScreenMode = "login"; // 'register' | 'login'
+  let regPasscode = "";
+
+  $: if (members && members.filter(m => m.isActive !== false).length === 0) {
+    loginScreenMode = "register";
+  }
+
+  /**
+   * @param {Member} member
+   */
+  async function handleSelectStaffLogin(member) {
+    const code = loginPasscode.trim();
+    const isCorrect = member.passcode
+      ? code === member.passcode
+      : (code === "8929" || code === "8888");
+      
+    if (!isCorrect) {
+      triggerToast("⚠️ パスコードが正しくありません。");
+      return;
+    }
+
+    const registeredUser = {
+      ...member,
+      avatar: member.emoji || (member.roles?.includes("kitchen") ? "👨‍🍳" : "👩‍💼"),
+      isAdmin: !!member.isAdmin,
+    };
+    currentUser = registeredUser;
+
+    localStorage.setItem("currentUser", JSON.stringify(registeredUser));
+    triggerToast(`💚 ログインしました！おかえりなさい、${registeredUser.name}さん。`);
+
+    selectedStaffId = registeredUser.id;
+    await loadStaffSubmissions(registeredUser.id);
+    requestPushSubscription(registeredUser.id).catch(console.error);
+
+    loginPasscode = "";
+  }
+
+  /**
+   * @param {number} memberId
+   * @param {boolean} isAdmin
+   */
+  async function toggleAdminPrivilege(memberId, isAdmin) {
+    try {
+      const res = await fetch("/api/members/update-admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: memberId, isAdmin }),
+      });
+      if (res.ok) {
+        // Update local members array
+        members = members.map((m) => {
+          if (m.id === memberId) {
+            return { ...m, isAdmin };
+          }
+          return m;
+        });
+
+        // If the logged-in user changed their own privilege, update local session too
+        if (currentUser && currentUser.id === memberId) {
+          const updatedUser = { ...currentUser, isAdmin };
+          currentUser = updatedUser;
+          localStorage.setItem("currentUser", JSON.stringify(updatedUser));
+        }
+
+        const mName = members.find((m) => m.id === memberId)?.name || "スタッフ";
+        triggerToast(
+          isAdmin
+            ? `👑 ${mName}さんに管理者権限を付与しました。`
+            : `👤 ${mName}さんの管理者権限を剥奪しました。`
+        );
+      } else {
+        throw new Error(await res.text());
+      }
+    } catch (error) {
+      const err = /** @type {any} */ (error);
+      console.error("管理者権限の更新に失敗しました:", err);
+      triggerToast(`⚠️ 権限更新失敗: ${err.message}`);
+    }
+  }
+
+  async function handleDatabaseReset() {
+    const ok = confirm("🚨 警告: データベース（全スタッフ、全希望データ）を完全にリセットします。よろしいですか？");
+    if (!ok) return;
+
+    const finalOk = confirm("⚠️ 本当に実行しますか？この操作は絶対に元に戻せません！");
+    if (!finalOk) return;
+
+    try {
+      const res = await fetch("/api/auth/reset", {
+        method: "POST"
+      });
+      if (res.ok) {
+        const data = await res.json();
+        alert(data.message);
+        handleSignOut();
+      } else {
+        throw new Error(await res.text());
+      }
+    } catch (e) {
+      const err = /** @type {any} */ (e);
+      alert(`⚠️ リセットに失敗しました: ${err.message}`);
+    }
+  }
+
   // 提出保存・締め切り用の新規ステート
   let isSubmitting = false;
   let deadlineDate = "2026-05-30T23:59:59";
@@ -283,6 +545,9 @@
   let saveTimeout = null;
 
   // 自律型遅刻救済のための動的締め切り計算
+  /**
+   * @param {string} periodStr
+   */
   function getDeadlineDateForPeriod(periodStr) {
     if (!periodStr) return null;
     const parts = periodStr.split("-");
@@ -299,51 +564,24 @@
     return null;
   }
 
-  // 猶予期間（5日間）の判定 (B期間なら16日以降、A期間なら1日以降は完全に打ち切り)
-  function isPeriodCutoff(periodStr, now = new Date()) {
-    if (!periodStr) return false;
-    const parts = periodStr.split("-");
-    const year = Number(parts[0]);
-    const month = Number(parts[1]);
-    const half = parts[2]; // 'A' or 'B'
-    if (half === "B") {
-      return now >= new Date(year, month - 1, 16);
-    } else {
-      return now >= new Date(year, month - 1, 1);
-    }
-  }
 
-  // 残り猶予日数の計算
-  function getDaysRemaining(periodStr, now = new Date()) {
-    if (!periodStr) return 0;
-    const parts = periodStr.split("-");
-    const year = Number(parts[0]);
-    const month = Number(parts[1]);
-    const half = parts[2]; // 'A' or 'B'
-    
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    let cutoffDate;
-    if (half === "B") {
-      cutoffDate = new Date(year, month - 1, 16);
-    } else {
-      cutoffDate = new Date(year, month - 1, 1);
-    }
-    
-    const diffTime = cutoffDate.getTime() - today.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays > 0 ? diffDays : 0;
-  }
 
-  const ALL_PERIODS = [
-    { value: "2026-06-A", label: "2026年6月 前半 (1日〜15日) " },
-    { value: "2026-06-B", label: "2026年6月 後半 (16日〜末日)" },
-    { value: "2026-07-A", label: "2026年7月 前半 (1日〜15日)" },
-    { value: "2026-07-B", label: "2026年7月 後半 (16日〜末日)" },
-    { value: "2026-08-A", label: "2026年8月 前半 (1日〜15日)" },
-    { value: "2026-08-B", label: "2026年8月 後半 (16日〜末日)" },
-  ];
+  $: selectablePeriods = (activeTab === "calendar")
+    ? [
+        { value: "2026-06", label: "2026年6月" },
+        { value: "2026-07", label: "2026年7月" },
+        { value: "2026-08", label: "2026年8月" }
+      ]
+    : [
+        { value: "2026-06-A", label: "2026年6月 前半 (1日〜15日) " },
+        { value: "2026-06-B", label: "2026年6月 後半 (16日〜末日)" },
+        { value: "2026-07-A", label: "2026年7月 前半 (1日〜15日)" },
+        { value: "2026-07-B", label: "2026年7月 後半 (16日〜末日)" },
+        { value: "2026-08-A", label: "2026年8月 前半 (1日〜15日)" },
+        { value: "2026-08-B", label: "2026年8月 後半 (16日〜末日)" }
+      ];
 
-  $: selectablePeriods = ALL_PERIODS;
+  $: deadlineInfo = getDeadlineInfo(currentPeriod);
 
   $: deadlineObj = getDeadlineDateForPeriod(currentPeriod);
   $: isPastDeadline = deadlineObj ? new Date() > deadlineObj : false;
@@ -378,72 +616,7 @@
   );
   $: unsubmittedCount = unsubmittedMembers.length;
 
-  // PWA帰還（引き戻し）ネイティブアプリ化ステート＆ロジック
-  let showPwaRedirectScreen = false;
-  let pwaLaunchUrl = "/";
-  let isStandalone = typeof window !== "undefined" && (
-    window.navigator.standalone || 
-    window.matchMedia("(display-mode: standalone)").matches
-  );
-  let pwaSessionId = null;
-  /** @type {any} */
-  let pwaPollInterval = null;
-  let isWaitingForPwaLogin = false;
 
-  function cancelPwaLogin() {
-    if (pwaPollInterval) {
-      clearInterval(pwaPollInterval);
-      pwaPollInterval = null;
-    }
-    localStorage.removeItem("pwaSessionId");
-    pwaSessionId = null;
-    isWaitingForPwaLogin = false;
-    isAuthenticating = false;
-  }
-
-  /**
-   * @param {string} sessionId
-   */
-  function startPwaPoll(sessionId) {
-    if (!sessionId) return;
-    isWaitingForPwaLogin = true;
-    if (pwaPollInterval) clearInterval(pwaPollInterval);
-    
-    pwaPollInterval = setInterval(async () => {
-      try {
-        const res = await fetch(`/api/auth/pwa-status?pwaSessionId=${sessionId}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.authenticated) {
-            clearInterval(pwaPollInterval);
-            pwaPollInterval = null;
-            localStorage.removeItem("pwaSessionId");
-            pwaSessionId = null;
-            isWaitingForPwaLogin = false;
-            isAuthenticating = false;
-            
-            const userData = data.user;
-            if (userData.registered === false) {
-              unlinkedLineUserId = userData.lineUserId;
-              unlinkedDisplayName = userData.displayName;
-              regName = userData.displayName || "";
-              showRegistrationForm = true;
-              triggerToast("✨ 初回サインイン: プロフィール作成画面へ移行します。");
-            } else {
-              currentUser = userData;
-              localStorage.setItem("currentUser", JSON.stringify(userData));
-              triggerToast(`💚 LINEログイン成功: ${userData.name}さんとして認証されました。`);
-              selectedStaffId = userData.id;
-              await loadStaffSubmissions(userData.id);
-              requestFcmToken(userData.lineUserId).catch(console.error);
-            }
-          }
-        }
-      } catch (e) {
-        console.error("[PWA Poll] Error:", e);
-      }
-    }, 2000);
-  }
 
   // LINEログイン・ユーザーセッション用ステート
   /** @type {Member | null} */
@@ -457,59 +630,79 @@
   let unlinkedLineUserId = null;
   let unlinkedDisplayName = null;
 
-  // FCM プッシュ通知用ステート
-  let fcmPermissionStatus = "idle"; // 'idle' | 'requesting' | 'granted' | 'denied'
-  /** @type {{ title: string, body: string } | null} */
-  let foregroundNotification = null; // フォアグラウンドメッセージ表示用
+  // Web Push 通知用ステート
+  let pushPermissionStatus = "idle"; // 'idle' | 'requesting' | 'granted' | 'denied'
 
+  // Web Push 購読処理
   /**
-   * FCMトークン取得とFirestore保存。ログイン完了直後またはonMount時に呼び出す。
-   * @param {string} [lineUserId]
+   * @param {number} memberId
    */
-  async function requestFcmToken(lineUserId) {
-    if (typeof window === "undefined" || !lineUserId) return;
-    // まだ未承諾の場合はリクエストパーミッションダイアログを出す
-    if (Notification?.permission === "default") {
-      fcmPermissionStatus = "requesting";
+  async function requestPushSubscription(memberId) {
+    if (typeof window === "undefined" || !memberId) return;
+    if (!('Notification' in window) || !('serviceWorker' in navigator)) {
+      console.warn('[Push] このブラウザは通知をサポートしていません。');
+      pushPermissionStatus = "denied";
+      return;
     }
-    const token = await requestNotificationPermissionAndSaveToken(lineUserId);
-    if (token) {
-      fcmPermissionStatus = "granted";
-    } else {
-      fcmPermissionStatus =
-        Notification?.permission === "denied" ? "denied" : "idle";
+
+    if (Notification.permission === 'default') {
+      pushPermissionStatus = "requesting";
+    }
+
+    try {
+      const permission = await Notification.requestPermission();
+      if (permission !== 'granted') {
+        console.info('[Push] 通知許可が得られませんでした。');
+        pushPermissionStatus = "denied";
+        return;
+      }
+
+      pushPermissionStatus = "granted";
+
+      const registration = await navigator.serviceWorker.ready;
+      const subscription = await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(VAPID_KEY)
+      });
+
+      console.info('[Push] 購読成功:', subscription.endpoint);
+
+      const res = await fetch("/api/auth/subscribe", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          memberId,
+          subscription
+        })
+      });
+
+      if (res.ok) {
+        triggerToast("🔔 プッシュ通知の設定が完了しました！");
+      } else {
+        console.error("プッシュ購読情報の保存に失敗しました:", await res.text());
+      }
+    } catch (err) {
+      console.error("[Push] 購読処理中にエラーが発生しました:", err);
+      pushPermissionStatus = "denied";
     }
   }
 
-  // 本物の LINE ログイン開始処理
-  async function handleLineLogin() {
-    isAuthenticating = true;
-    authErrorMessage = null;
-    try {
-      let url = "/api/auth/line-url";
-      if (isStandalone) {
-        pwaSessionId = "pwa_" + Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-        localStorage.setItem("pwaSessionId", pwaSessionId);
-        url += `?pwaSessionId=${pwaSessionId}`;
-        startPwaPoll(pwaSessionId);
-      }
-      
-      const res = await fetch(url);
-      if (!res.ok) {
-        throw new Error(await res.text());
-      }
-      const data = await res.json();
-      if (data.url) {
-        window.location.href = data.url;
-      } else {
-        throw new Error("認可URLの生成に失敗しました。");
-      }
-    } catch (error) {
-      const err = /** @type {any} */ (error);
-      console.error(err);
-      isAuthenticating = false;
-      triggerToast(`⚠️ LINEログインエラー: ${err.message}`);
+  /**
+   * @param {string} base64String
+   */
+  function urlBase64ToUint8Array(base64String) {
+    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const base64 = (base64String + padding)
+      .replace(/\-/g, '+')
+      .replace(/_/g, '/');
+
+    const rawData = window.atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+
+    for (let i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
     }
+    return outputArray;
   }
 
 
@@ -517,24 +710,21 @@
   function handleSignOut() {
     currentUser = null;
     localStorage.removeItem("currentUser");
-    unlinkedLineUserId = null;
-    unlinkedDisplayName = null;
-    authErrorMessage = null;
-    showRegistrationForm = false;
     regName = "";
+    regInitialChar = "";
     regRoles = [];
-    regStatus = "regular";
+    regIsTrainee = false;
     staffAvailabilities = {};
     activeTab = "calendar"; // シフト表へリダイレクト
     triggerToast("👋 サインアウトしました。セッションを終了しました。");
   }
 
   // 初回プロフィール作成フォーム用のリアクティブ変数
-  let showRegistrationForm = false;
   let regName = "";
+  let regInitialChar = "";
   /** @type {string[]} */
   let regRoles = []; // ["kitchen"], ["hall"], ["kitchen", "hall"]
-  let regStatus = "regular"; // "regular" | "trainee"
+  let regIsTrainee = false;
   let isRegistering = false;
 
   // 新規スタッフプロフィール登録処理
@@ -547,6 +737,11 @@
       triggerToast("⚠️ 担当タグ（役割）を1つ以上選択してください。");
       return;
     }
+    const cleanPasscode = regPasscode.trim();
+    if (!cleanPasscode || cleanPasscode.length !== 4 || !/^\d{4}$/.test(cleanPasscode)) {
+      triggerToast("⚠️ ログイン用のパスコード（数字4桁）を入力してください。");
+      return;
+    }
 
     isRegistering = true;
     try {
@@ -555,9 +750,10 @@
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: regName.trim(),
+          initialChar: regInitialChar.trim(),
           roles: regRoles,
-          status: regStatus,
-          lineUserId: unlinkedLineUserId,
+          status: regIsTrainee ? "trainee" : "regular",
+          passcode: cleanPasscode
         }),
       });
 
@@ -581,16 +777,20 @@
         );
 
         // 登録用ステートを綺麗に初期化
-        showRegistrationForm = false;
         regName = "";
+        regInitialChar = "";
         regRoles = [];
-        regStatus = "regular";
+        regIsTrainee = false;
+        regPasscode = "";
+
+        // メンバーリストを再取得してカレンダー上の表示を更新
+        await fetchMembers();
 
         selectedStaffId = registeredUser.id;
         await loadStaffSubmissions(registeredUser.id);
 
-        // FCM通知許可を促す
-        requestFcmToken(registeredUser.lineUserId).catch(console.error);
+        // プッシュ通知購読を設定
+        requestPushSubscription(registeredUser.id).catch(console.error);
       }
     } catch (error) {
       const err = /** @type {any} */ (error);
@@ -729,21 +929,12 @@
   }
 
   onMount(() => {
-    /** @type {any} */
-    let unsubscribeForeground;
-
     async function init() {
       // 0. マウント時にFirestoreから臨時休業データ、メンバー一覧、公開ステータスを取得
       await fetchHolidays();
       await fetchMembers();
       await fetchShiftStatus(currentPeriod);
       await fetchSubmissions();
-
-      // 0.5 PWAからのログイン待機セッションを復元
-      const savedPwaSessionId = localStorage.getItem("pwaSessionId");
-      if (savedPwaSessionId && isStandalone) {
-        startPwaPoll(savedPwaSessionId);
-      }
 
       // 1. ローカルストレージから既存のサインインセッションを復元
       const cachedUser = localStorage.getItem("currentUser");
@@ -753,23 +944,9 @@
           if (parsedUser) {
             currentUser = parsedUser;
 
-            // ローカルストレージ内の古いlineUserIdの自動同期クリーニング
-            const dbMember = members.find((m) => m.id === parsedUser.id);
-            if (
-              dbMember &&
-              dbMember.lineUserId &&
-              parsedUser.lineUserId !== dbMember.lineUserId
-            ) {
-              console.info(
-                `[App] Syncing outdated lineUserId from ${parsedUser.lineUserId} to ${dbMember.lineUserId}`,
-              );
-              parsedUser.lineUserId = dbMember.lineUserId;
-              currentUser = parsedUser;
-              localStorage.setItem("currentUser", JSON.stringify(currentUser));
-            }
+            // バックグラウンドでWeb Push購読を確認・更新
+            requestPushSubscription(parsedUser.id).catch(console.error);
 
-            // バックグラウンドでFCMトークンの自動確認・更新
-            requestFcmToken(parsedUser.lineUserId).catch(console.error);
             if (parsedUser.id) {
               selectedStaffId = parsedUser.id;
               loadStaffSubmissions(parsedUser.id).catch(console.error);
@@ -780,111 +957,28 @@
         }
       }
 
-      // 2. URLパラメータからLINE OAuth認証コード (code) の有無を確認
-      const urlParams = new URLSearchParams(window.location.search);
-      const code = urlParams.get("code");
-      const state = urlParams.get("state");
-      if (code) {
-        isAuthenticating = true;
-        authErrorMessage = null;
-        triggerToast("🔐 LINEログイン認証中...");
-
-        try {
-          const res = await fetch("/api/auth/callback", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ code, state }),
-          });
-
-          if (!res.ok) {
-            throw new Error(await res.text());
+      // 2. ブラウザ通知許可の確認と初期設定
+      if (typeof window !== "undefined" && 'Notification' in window) {
+        if (Notification.permission === "granted") {
+          pushPermissionStatus = "granted";
+          if (currentUser) {
+            requestPushSubscription(currentUser.id).catch(console.error);
           }
-
-          const data = await res.json();
-          
-          if (state && state.startsWith("pwa_")) {
-            showPwaRedirectScreen = true;
-            isAuthenticating = false;
-            
-            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
-            if (isIOS) {
-              pwaLaunchUrl = ""; // iOSは自動遷移すると無効なアドレスエラーになるためガイドを表示するのみ
-              triggerToast("🎉 LINE認証完了。ホーム画面のアプリを開いてください。");
-            } else {
-              pwaLaunchUrl = "/";
-              triggerToast("🎉 LINE認証完了。PWAアプリへ戻ります...");
-              setTimeout(() => {
-                window.location.href = pwaLaunchUrl;
-              }, 1000);
-            }
-            return;
-          }
-
-          if (data.registered) {
-            const loggedInUser = {
-              ...data.user,
-              avatar:
-                members.find((m) => m.id === Number(data.user.id))?.emoji || "🧑‍🍳",
-              isAdmin: !!data.user.isAdmin,
-            };
-            currentUser = loggedInUser;
-            localStorage.setItem("currentUser", JSON.stringify(loggedInUser));
-            triggerToast(
-              `💚 LINEログイン成功: ${loggedInUser.name}さんとして認証されました。`,
-            );
-
-            selectedStaffId = loggedInUser.id;
-            await loadStaffSubmissions(loggedInUser.id);
-
-            requestFcmToken(loggedInUser.lineUserId).catch(console.error);
-          } else {
-            // 未登録 (lineUserId が Firestore の members に未登録)
-            unlinkedLineUserId = data.lineUserId;
-            unlinkedDisplayName = data.displayName;
-            regName = data.displayName || ""; // お名前を初期入力欄に補完
-            showRegistrationForm = true; // Apple風初回登録フォームをアクティブにする
-            triggerToast("✨ 初回サインイン: プロフィール作成画面へ移行します。");
-          }
-        } catch (error) {
-          const err = /** @type {any} */ (error);
-          console.error(err);
-          authErrorMessage = `LINE認証に失敗しました: ${err.message}`;
-          triggerToast(`⚠️ 認証エラー: ${err.message}`);
-        } finally {
-          isAuthenticating = false;
-          // URLパラメータをクリアしてアドレスバーを綺麗にする (SPA)
-          window.history.replaceState(
-            {},
-            document.title,
-            window.location.pathname,
-          );
+        } else if (Notification.permission === "denied") {
+          pushPermissionStatus = "denied";
+        } else {
+          pushPermissionStatus = "idle";
         }
       }
 
       // 既存の初期化処理
       await loadShifts(currentPeriod);
-
       fetchDeadline();
-
-      // フォアグラウンドメッセージ受信ハンドラーを登録
-      unsubscribeForeground = onForegroundMessage((/** @type {any} */ payload) => {
-        const title =
-          payload.notification?.title || "桃牛苑 シフト提出の締め切り";
-        const body =
-          payload.notification?.body ||
-          "本日シフトの締め切り日です。アプリから入力をお願いします。";
-        foregroundNotification = { title, body };
-        setTimeout(() => {
-          foregroundNotification = null;
-        }, 8000);
-      });
     }
 
     init();
 
-    return () => {
-      if (typeof unsubscribeForeground === "function") unsubscribeForeground();
-    };
+    return () => {};
   });
 
   // リアクティブ制約バリデーション
@@ -971,6 +1065,7 @@
     const isOver = m.status === "regular" && count > targetDays;
     return {
       ...m,
+      isActive: m.isActive !== false,
       count,
       target,
       isOk,
@@ -1261,7 +1356,7 @@
         } else if (targetPeriod.endsWith("-B")) {
           shiftStatusB = data.status;
         }
-        triggerToast("💚 シフトを確定公開し、LINE通知を送信しました！");
+        triggerToast("💚 シフトを確定公開しました！");
       } else {
         throw new Error(await res.text());
       }
@@ -1354,7 +1449,7 @@
         triggerToast("📢 未提出メンバーはいません（全員提出済みです）。");
       } else {
         triggerToast(
-          `📢 未提出の${data.remindedCount}名（${data.remindedNames.join(", ")}）へLINEリマインドを配信しました！`,
+          `📢 未提出の${data.remindedCount}名（${data.remindedNames.join(", ")}）へプッシュ通知を配信しました！`,
         );
       }
     } catch (error) {
@@ -1566,7 +1661,7 @@
       lineUserId: currentUser
         ? currentUser.lineUserId
         : m.lineUserId || `U06c755lineUser_${m.id}`,
-      isSubmitted: isSubmitted,
+      isSubmitted: false,
       submittedAt: new Date().toISOString(),
     };
 
@@ -1694,53 +1789,7 @@
   class="pb-16 text-slate-800 font-sans select-none selection:bg-[#0071e3]/20"
 >
   <!-- Safari PWA 引き戻し案内画面 -->
-  {#if showPwaRedirectScreen}
-    <div
-      class="fixed inset-0 bg-black z-[9999] flex flex-col items-center justify-center p-6 text-center text-white font-sans"
-    >
-      <div class="apple-setup-glow"></div>
-      <div class="max-w-sm space-y-6 animate-popup z-10">
-        <div
-          class="w-20 h-20 bg-[#06c755] rounded-3xl flex items-center justify-center mx-auto shadow-[0_4px_16px_rgba(6,199,85,0.3)] text-white text-4xl font-extrabold select-none"
-        >
-          L
-        </div>
-        <h2 class="text-2xl font-black tracking-tight">LINEログインが完了しました</h2>
-        <p class="text-xs text-[#86868b] leading-relaxed font-semibold">
-          ブラウザでの認証手続きが正常に完了しました。
-        </p>
-        
-        {#if pwaLaunchUrl === ""}
-          <!-- iOS用の手動復帰ガイド (SafariからPWAを直接起動する手段がiOSにないため) -->
-          <div class="space-y-4">
-            <div class="bg-slate-900/80 p-5 rounded-2xl border border-slate-800 text-left text-xs text-[#aeaeb2] leading-relaxed font-semibold">
-              <span class="text-white font-bold block mb-2 text-sm">📲 PWAアプリへの復帰手順：</span>
-              1. ホーム画面（スマートフォンの待受画面）に戻る<br />
-              2. ホーム画面の<span class="text-[#06c755] font-bold">『桃牛苑』</span>アイコンをタップして起動する<br />
-              <span class="text-[10px] text-slate-500 mt-3 block">※ログイン状態はバックグラウンドで自動同期されています。</span>
-            </div>
-          </div>
-        {:else}
-          <!-- Android等の自動遷移 & ボタン -->
-          <p class="text-xs text-[#86868b] leading-relaxed font-semibold">
-            ホーム画面の『桃牛苑』アプリへお戻りください。自動的にログイン状態が引き継がれ、アプリが起動します。
-          </p>
-          <div class="pt-6">
-            <a
-              href={pwaLaunchUrl}
-              class="px-8 py-4 bg-white text-black font-extrabold rounded-2xl inline-block shadow-lg hover:bg-[#f5f5f7] active:scale-95 transition-all text-xs tracking-wider"
-            >
-              PWAアプリを開く
-            </a>
-          </div>
-        {/if}
-        
-        <p class="text-[9px] text-[#48484a] font-medium leading-relaxed">
-          ※PWA（ホーム画面に追加されたアプリ）からログインを開始した場合の専用画面です。
-        </p>
-      </div>
-    </div>
-  {/if}
+
 
   <!-- トースト -->
   {#if toastMessage}
@@ -1755,54 +1804,9 @@
   {/if}
 
   <!-- ========================================================= -->
-  <!-- FCM フォアグラウンド通知バナー                               -->
-  <!-- アプリが開いている間にプッシュ通知が届いたとき表示する          -->
-  <!-- ========================================================= -->
-  {#if foregroundNotification}
-    <div
-      class="fixed top-6 left-1/2 -translate-x-1/2 z-[60] animate-popup"
-      in:fade={{ duration: 200 }}
-      out:fade={{ duration: 200 }}
-    >
-      <div
-        class="bg-slate-900 text-white px-5 py-4 rounded-2xl shadow-2xl flex items-start gap-3.5 max-w-sm w-[calc(100vw-3rem)]"
-      >
-        <!-- 通知アイコン -->
-        <div
-          class="w-9 h-9 rounded-xl bg-[#06c755] flex items-center justify-center shrink-0 mt-0.5"
-        >
-          <Bell class="w-4 h-4 text-white" />
-        </div>
-        <!-- テキスト -->
-        <div class="flex-1 min-w-0">
-          <p
-            class="text-[11px] font-black text-white/60 uppercase tracking-widest mb-0.5"
-          >
-            桃牛苑シフト
-          </p>
-          <p class="text-sm font-bold text-white leading-snug">
-            {foregroundNotification.title}
-          </p>
-          <p class="text-xs text-white/70 mt-0.5 leading-relaxed">
-            {foregroundNotification.body}
-          </p>
-        </div>
-        <!-- 閉じるボタン -->
-        <button
-          on:click={() => (foregroundNotification = null)}
-          class="text-white/40 hover:text-white/80 transition-colors mt-0.5 shrink-0"
-          aria-label="閉じる"
-        >
-          <X class="w-4 h-4" />
-        </button>
-      </div>
-    </div>
-  {/if}
-
-  <!-- ========================================================= -->
   <!-- 通知許可プロンプトバナー（初回のみ・未決定の場合のみ表示）    -->
   <!-- ========================================================= -->
-  {#if currentUser && fcmPermissionStatus === "idle"}
+  {#if currentUser && pushPermissionStatus === "idle"}
     <div
       class="fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] animate-popup"
       in:fade={{ duration: 300 }}
@@ -1826,14 +1830,14 @@
         <div class="flex gap-2 shrink-0">
           <button
             on:click={() => {
-              fcmPermissionStatus = "denied";
+              pushPermissionStatus = "denied";
             }}
             class="text-[10px] font-bold text-slate-400 hover:text-slate-600 px-2 py-1.5 rounded-lg transition-colors"
           >
             後で
           </button>
           <button
-            on:click={() => requestFcmToken(currentUser?.lineUserId)}
+            on:click={() => { if (currentUser) requestPushSubscription(currentUser.id); }}
             class="text-[10px] font-bold text-white bg-[#0071e3] hover:bg-[#005bb5] px-3 py-1.5 rounded-lg transition-colors"
           >
             許可する
@@ -1881,19 +1885,19 @@
       >
         <div class="segmented-control w-full md:w-[480px]">
           <button
-            on:click={() => (activeTab = "calendar")}
+            on:click={() => changeTab("calendar")}
             class="segment-btn {activeTab === 'calendar' ? 'active' : ''}"
           >
             シフト表<span class="hidden-mobile">・カレンダー</span>
           </button>
           <button
-            on:click={() => (activeTab = "submissions")}
+            on:click={() => changeTab("submissions")}
             class="segment-btn {activeTab === 'submissions' ? 'active' : ''}"
           >
             希望提出
           </button>
           <button
-            on:click={() => (activeTab = "manager")}
+            on:click={() => changeTab("manager")}
             class="segment-btn {activeTab === 'manager' ? 'active' : ''}"
           >
             管理者<span class="hidden-mobile">設定</span>
@@ -1905,7 +1909,7 @@
             class="flex items-center gap-3 bg-slate-50 px-3.5 py-1.5 rounded-2xl border border-slate-200/60 animate-popup w-full md:w-auto"
           >
             <div
-              class="w-6 h-6 rounded-full bg-[#06c755]/10 flex items-center justify-center text-xs border border-[#06c755]/20 select-none"
+              class="w-6 h-6 rounded-full bg-[#0071e3]/10 flex items-center justify-center text-xs border border-[#0071e3]/20 select-none"
             >
               {currentUser.avatar}
             </div>
@@ -1913,14 +1917,14 @@
               <div
                 class="text-[8px] text-slate-400 font-black uppercase tracking-wider"
               >
-                LINE連携中
+                サインイン中
               </div>
               <div
                 class="text-[11px] font-bold text-slate-700 mt-0.5 flex items-center gap-1"
               >
                 {currentUser.name}さん
                 <span
-                  class="text-[7px] bg-[#06c755]/10 text-[#06c755] border border-[#06c755]/20 px-0.5 rounded font-extrabold"
+                  class="text-[7px] bg-[#0071e3]/10 text-[#0071e3] border border-[#0071e3]/20 px-0.5 rounded font-extrabold"
                 >
                   {currentUser.roles?.length > 1
                     ? "キッチン/ホール"
@@ -1945,29 +1949,51 @@
   <!-- メインコンテンツ -->
   <main class="max-w-7xl mx-auto px-6 mt-8">
     {#if !currentUser}
-      {#if showRegistrationForm}
-        <!-- Apple風初回プロフィール自律登録画面 (Pitch Black, Minimalist) -->
-        <div class="apple-setup-container" in:fade={{ duration: 250 }}>
-          <div class="apple-setup-glow"></div>
+      <!-- Apple風初回プロフィール登録 & スタッフ選択型ログイン画面 (Pitch Black, Minimalist) -->
+      <div class="apple-setup-container animate-popup" in:fade={{ duration: 250 }}>
+        <div class="apple-setup-glow"></div>
 
-          <div class="apple-setup-content">
-            <!-- Header -->
-            <div class="text-center">
-              <div class="apple-setup-logo"></div>
-              <h2 class="apple-setup-title">プロフィールの作成</h2>
-              <p class="apple-setup-subtitle">
-                ようこそ、桃牛苑へ。<br
-                />あなたのプロフィールを設定してシフト管理を開始しましょう。
-              </p>
-            </div>
+        <div class="apple-setup-content">
+          <!-- Header -->
+          <div class="text-center mb-6">
+            <div class="apple-setup-logo"></div>
+            <h2 class="apple-setup-title">
+              {loginScreenMode === 'register' ? 'プロフィールの作成' : 'スタッフログイン'}
+            </h2>
+            <p class="apple-setup-subtitle">
+              {#if loginScreenMode === 'register'}
+                ようこそ、桃牛苑へ。<br />あなたのプロフィールを設定してシフト管理を開始しましょう。
+              {:else}
+                すでに登録されているスタッフ一覧から選択してサインインします。
+              {/if}
+            </p>
+          </div>
 
-            <!-- Form -->
-            <div class="space-y-6">
+          <!-- Segmented Mode Control -->
+          <div class="grid grid-cols-2 bg-white/5 border border-white/10 p-1 rounded-2xl mb-6">
+            <button
+              type="button"
+              on:click={() => (loginScreenMode = "login")}
+              class="py-2 text-[11px] font-bold rounded-xl transition-all border-0 cursor-pointer {loginScreenMode === 'login' ? 'bg-[#0071e3] text-white shadow-sm' : 'bg-transparent text-slate-400 hover:text-white'}"
+            >
+              登録済み (ログイン)
+            </button>
+            <button
+              type="button"
+              on:click={() => (loginScreenMode = "register")}
+              class="py-2 text-[11px] font-bold rounded-xl transition-all border-0 cursor-pointer {loginScreenMode === 'register' ? 'bg-[#0071e3] text-white shadow-sm' : 'bg-transparent text-slate-400 hover:text-white'}"
+            >
+              初めての方 (新規登録)
+            </button>
+          </div>
+
+          <!-- Form View -->
+          {#if loginScreenMode === 'register'}
+            <!-- Path A: Profile Registration Form -->
+            <div class="space-y-5" in:fade={{ duration: 150 }}>
               <!-- Name Input -->
               <div class="apple-form-group">
-                <label for="reg-name" class="apple-form-label"
-                  >お名前 (氏名)</label
-                >
+                <label for="reg-name" class="apple-form-label">お名前 (氏名)</label>
                 <input
                   id="reg-name"
                   type="text"
@@ -1977,7 +2003,23 @@
                 />
               </div>
 
-              <!-- Roles Selection (Multi-select segmented pill style) -->
+              <!-- Identity Char Input -->
+              <div class="apple-form-group">
+                <label for="reg-initial" class="apple-form-label">識別用の一文字 (漢字/頭文字)</label>
+                <input
+                  id="reg-initial"
+                  type="text"
+                  maxlength="1"
+                  bind:value={regInitialChar}
+                  placeholder="桃"
+                  class="apple-input-text"
+                />
+                <p class="text-[10px] text-slate-500 font-medium mt-1">
+                  ※シフトカレンダー上の表示に使われます。空欄の場合はお名前の頭文字になります。
+                </p>
+              </div>
+
+              <!-- Roles Selection -->
               <div class="apple-form-group">
                 <span class="apple-form-label">担当タグ (役割)</span>
                 <div class="apple-segmented-roles">
@@ -1990,9 +2032,7 @@
                         regRoles = [...regRoles, "kitchen"];
                       }
                     }}
-                    class="apple-role-btn {regRoles.includes('kitchen')
-                      ? 'active'
-                      : ''}"
+                    class="apple-role-btn {regRoles.includes('kitchen') ? 'active' : ''}"
                   >
                     <span>🍳</span> キッチン
                   </button>
@@ -2005,9 +2045,7 @@
                         regRoles = [...regRoles, "hall"];
                       }
                     }}
-                    class="apple-role-btn {regRoles.includes('hall')
-                      ? 'active'
-                      : ''}"
+                    class="apple-role-btn {regRoles.includes('hall') ? 'active' : ''}"
                   >
                     <span>🛎</span> ホール
                   </button>
@@ -2017,179 +2055,117 @@
                 </p>
               </div>
 
-              <!-- Status Selection (Segmented Control style) -->
+              <!-- Status Selection -->
               <div class="apple-form-group">
-                <span class="apple-form-label">区分 (ステータス)</span>
-                <div class="apple-segmented-status">
-                  <button
-                    type="button"
-                    on:click={() => (regStatus = "regular")}
-                    class="apple-status-btn {regStatus === 'regular'
-                      ? 'active'
-                      : ''}"
-                  >
-                    通常バイト
-                  </button>
-                  <button
-                    type="button"
-                    on:click={() => (regStatus = "trainee")}
-                    class="apple-status-btn {regStatus === 'trainee'
-                      ? 'active'
-                      : ''}"
-                  >
-                    研修中
-                  </button>
+                <div class="flex items-center justify-between bg-white/5 border border-white/10 rounded-2xl p-4">
+                  <span class="text-xs font-semibold text-slate-200">研修中（トレーニング中）</span>
+                  <label class="apple-toggle-switch">
+                    <input type="checkbox" bind:checked={regIsTrainee} />
+                    <span class="apple-toggle-slider"></span>
+                  </label>
                 </div>
               </div>
-            </div>
 
-            <!-- Action Buttons -->
-            <div>
-              <button
-                type="button"
-                on:click={handleRegisterProfile}
-                disabled={isRegistering}
-                class="apple-btn-submit"
-              >
-                {#if isRegistering}
-                  <div class="apple-loading-spinner"></div>
-                  <span>登録処理中...</span>
-                {:else}
-                  <span>登録して開始する</span>
-                {/if}
-              </button>
-
-              <button
-                type="button"
-                on:click={() => {
-                  showRegistrationForm = false;
-                  unlinkedLineUserId = null;
-                }}
-                class="apple-btn-cancel"
-              >
-                キャンセルして戻る
-              </button>
-            </div>
-          </div>
-        </div>
-      {:else}
-        <!-- LINEログイン画面 (Apple風極上シンプルデザイン) -->
-        <div
-          class="min-h-[70vh] flex items-center justify-center bg-slate-50 px-6 py-12 animate-popup rounded-3xl border border-slate-200/50 bg-white glass-panel shadow-sm"
-          in:fade={{ duration: 150 }}
-        >
-          <div
-            class="max-w-md w-full p-6 flex flex-col items-center text-center space-y-8"
-          >
-            <div class="space-y-4">
-              <div
-                class="w-16 h-16 rounded-3xl bg-[#06c755] shadow-[0_4px_16px_rgba(6,199,85,0.25)] flex items-center justify-center text-white text-3xl font-extrabold mx-auto select-none"
-              >
-                L
-              </div>
-              <h2 class="text-2xl font-black text-slate-900 tracking-tight">
-                桃牛苑 シフト管理
-              </h2>
-              <p
-                class="text-xs text-slate-500 mt-1 leading-relaxed font-semibold"
-              >
-                LINEアカウントと連携して、シフトの確認や<br />
-                スケジュール希望提出をセキュアに行うことができます。
-              </p>
-            </div>
-
-            {#if isWaitingForPwaLogin}
-              <!-- PWAログイン待機画面 -->
-              <div
-                class="w-full py-8 flex flex-col items-center justify-center space-y-6"
-              >
-                <div
-                  class="w-10 h-10 rounded-full border-3 border-slate-100 border-t-[#0071e3] animate-spin"
-                ></div>
-                <div class="space-y-2">
-                  <p class="text-xs font-bold text-slate-700">
-                    ブラウザでのLINEログイン完了を待っています...
-                  </p>
-                  <p class="text-[10px] text-slate-400 font-semibold leading-relaxed">
-                    ブラウザでの認証完了後、自動的にこのアプリにログインします。<br />
-                    完了したらホーム画面のこのアプリにお戻りください。
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  on:click={cancelPwaLogin}
-                  class="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-[10px] font-bold text-slate-500 rounded-xl transition-all cursor-pointer"
-                >
-                  ログインをキャンセル
-                </button>
-              </div>
-            {:else if isAuthenticating}
-              <!-- 認証中のローディング表示 -->
-              <div
-                class="w-full py-12 flex flex-col items-center justify-center space-y-4"
-              >
-                <div
-                  class="w-8 h-8 rounded-full border-2 border-slate-200 border-t-[#06c755] animate-spin"
-                ></div>
-                <p class="text-xs text-slate-400 font-bold tracking-tight">
-                  LINE認証を行っています...
+              <!-- Personal Passcode Selection -->
+              <div class="apple-form-group">
+                <label for="reg-passcode" class="apple-form-label">ご自身のログイン用パスコード (数字4桁)</label>
+                <input
+                  id="reg-passcode"
+                  type="password"
+                  pattern="[0-9]*"
+                  inputmode="numeric"
+                  maxlength="4"
+                  bind:value={regPasscode}
+                  placeholder="••••"
+                  class="apple-input-text text-center text-lg tracking-widest font-black"
+                />
+                <p class="text-[10px] text-slate-500 font-medium mt-1">
+                  ※次回ログイン時に使用します。忘れないようにご注意ください。
                 </p>
               </div>
-            {:else}
-              <div class="w-full space-y-5">
-                {#if authErrorMessage}
-                  <!-- LINEアカウント未連携 / エラー表示 -->
-                  <div
-                    class="w-full bg-red-50/50 border border-red-100 p-5 rounded-2xl text-left space-y-3 animate-popup"
-                  >
-                    <span
-                      class="text-[9px] font-black text-red-500 uppercase tracking-widest block"
-                      >エラーが発生しました</span
-                    >
-                    <p
-                      class="text-xs text-slate-600 leading-relaxed font-medium"
-                    >
-                      {authErrorMessage}
-                    </p>
-                    <button
-                      on:click={() => {
-                        authErrorMessage = null;
-                        unlinkedLineUserId = null;
-                      }}
-                      class="w-full py-2.5 bg-white border border-slate-200 text-xs font-bold text-slate-700 rounded-xl hover:bg-slate-50 transition-all active:scale-[0.99] cursor-pointer"
-                    >
-                      ログイン画面に戻る
-                    </button>
-                  </div>
-                {:else}
-                  <!-- LINEサインイン（本物） -->
-                  <button
-                    on:click={handleLineLogin}
-                    class="w-full py-4 bg-[#06c755] hover:bg-[#05b34c] text-white text-xs font-bold rounded-2xl transition-all shadow-[0_4px_12px_rgba(6,199,85,0.15)] hover:translate-y-[0.5px] flex items-center justify-center gap-2 cursor-pointer active:scale-[0.99]"
-                  >
-                    <svg class="w-4 h-4 fill-current" viewBox="0 0 24 24">
-                      <path
-                        d="M24 10.3c0-5.7-5.4-10.3-12-10.3s-12 4.6-12 10.3c0 5.1 4.3 9.3 10.1 10.1.4.1.9.3 1 .7.1.3 0 .7-.1 1l-.4 2.5c-.1.5.2.9.6 1 .1 0 .2 0 .3 0 .4 0 .8-.2 1.1-.6l3.3-3.9c.3-.3.5-.5.9-.6 5.3-.9 9.2-4.9 9.2-9.2z"
-                      />
-                    </svg>
-                    LINE アカウントでサインイン
-                  </button>
 
-                  <p
-                    class="text-[9px] text-slate-500 font-medium leading-relaxed"
-                  >
-                    ※LINEプラットフォームの認可を受けたセキュアなログインを行います。<br
-                    />
-                    初めての方は、ログイン後に「お名前・役割・区分」のプロフィール自律登録を行います。
-                  </p>
-
-
-                {/if}
+              <!-- Submit Button -->
+              <div class="pt-2">
+                <button
+                  type="button"
+                  on:click={handleRegisterProfile}
+                  disabled={isRegistering}
+                  class="apple-btn-submit"
+                >
+                  {#if isRegistering}
+                    <div class="apple-loading-spinner"></div>
+                    <span>登録処理中...</span>
+                  {:else}
+                    <span>プロフィールを登録して開始する</span>
+                  {/if}
+                </button>
               </div>
-            {/if}
-          </div>
+            </div>
+          {:else}
+            <!-- Path B: Select Staff Login Form -->
+            <div class="space-y-5" in:fade={{ duration: 150 }}>
+              <!-- Passcode Input -->
+              <div class="apple-form-group">
+                <label for="login-passcode" class="apple-form-label">お店共通のパスコード (数字4桁)</label>
+                <input
+                  id="login-passcode"
+                  type="password"
+                  pattern="[0-9]*"
+                  inputmode="numeric"
+                  maxlength="4"
+                  bind:value={loginPasscode}
+                  placeholder="••••"
+                  class="apple-input-text text-center text-lg tracking-widest font-black"
+                />
+                <p class="text-[9px] text-slate-500 font-medium mt-1 text-center">
+                  ※共通パスコード（8929 または 8888）を入力してください。
+                </p>
+              </div>
+
+              <!-- Scrollable Staff buttons grid -->
+              <div class="apple-form-group">
+                <span class="apple-form-label block mb-2.5">ご自身の名前をタップしてログイン</span>
+                <div class="space-y-2 max-h-[300px] overflow-y-auto pr-1">
+                  {#each members.filter(m => m.isActive !== false) as m}
+                    <button
+                      type="button"
+                      on:click={() => handleSelectStaffLogin(m)}
+                      class="w-full flex items-center justify-between bg-white/5 border border-white/8 hover:border-[#0071e3]/60 hover:bg-white/10 p-3 rounded-2xl text-left cursor-pointer transition-all duration-200"
+                    >
+                      <div class="flex items-center gap-2.5 min-w-0">
+                        <div class="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-xs font-black text-white shrink-0 border border-white/5 select-none">
+                          {m.initialChar || m.name.charAt(0)}
+                        </div>
+                        <span class="text-sm select-none">{m.emoji}</span>
+                        <div class="truncate">
+                          <p class="text-xs font-bold text-white truncate leading-tight">{m.name}</p>
+                          <p class="text-[9px] text-slate-400 font-semibold mt-0.5">
+                            {#if m.roles?.includes('kitchen') && m.roles?.includes('hall')}
+                              🍳厨房 / 🛎ホール
+                            {:else if m.roles?.includes('kitchen')}
+                              🍳キッチン
+                            {:else}
+                              🛎ホール
+                            {/if}
+                          </p>
+                        </div>
+                      </div>
+                      <span class="text-[9px] font-black text-slate-300 uppercase tracking-wider bg-white/5 px-2.5 py-1 rounded-lg border border-white/5">
+                        サインイン
+                      </span>
+                    </button>
+                  {/each}
+                  {#if members.filter(m => m.isActive !== false).length === 0}
+                    <p class="text-xs text-slate-500 text-center py-8">
+                      登録済みのスタッフはいません。<br />「初めての方」を選択して登録してください。
+                    </p>
+                  {/if}
+                </div>
+              </div>
+            </div>
+          {/if}
         </div>
-      {/if}
+      </div>
     {:else}
       <!-- ========================================================================= -->
       <!-- 【メイン画面】シフト表・カレンダー (Apple Store風 7列月間カレンダー)             -->
@@ -2489,6 +2465,42 @@
             >
           </div>
 
+          {#if deadlineInfo}
+            <div class="glass-panel p-6 border-l-4 transition-all duration-300 bg-white shadow-[0_8px_30px_rgba(0,0,0,0.03)] {deadlineInfo.type === 'warning'
+              ? 'border-l-rose-500 border-y border-r border-rose-100'
+              : 'border-l-[#0071e3] border-y border-r border-slate-100'}"
+            >
+              <div class="flex flex-col md:flex-row md:items-center justify-between gap-6">
+                <div class="flex items-start gap-4">
+                  <div class="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 shadow-sm {deadlineInfo.type === 'warning' ? 'bg-rose-50 text-rose-500 border border-rose-100' : 'bg-blue-50 text-[#0071e3] border border-blue-100'}">
+                    {#if deadlineInfo.type === 'warning'}
+                      <span class="text-2xl select-none">⚠️</span>
+                    {:else}
+                      <span class="text-2xl select-none">📅</span>
+                    {/if}
+                  </div>
+                  <div>
+                    <h4 class="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                      {deadlineInfo.title}
+                    </h4>
+                    <p class="text-xs md:text-sm font-bold text-slate-500 mt-1">
+                      {deadlineInfo.mainLabel}
+                    </p>
+                    <p class="text-xl md:text-2xl font-black tracking-tight mt-1.5 {deadlineInfo.type === 'warning' ? 'text-rose-600' : 'text-slate-900'}">
+                      {deadlineInfo.value}
+                    </p>
+                  </div>
+                </div>
+
+                <div class="max-w-md bg-slate-50 p-4 rounded-2xl border border-slate-100/80">
+                  <p class="text-xs md:text-xs font-semibold leading-relaxed {deadlineInfo.type === 'warning' ? 'text-rose-700' : 'text-slate-600'}">
+                    {deadlineInfo.description}
+                  </p>
+                </div>
+              </div>
+            </div>
+          {/if}
+
           <div
             class="glass-panel p-5 flex flex-col sm:flex-row items-center justify-between gap-4 bg-white"
           >
@@ -2668,9 +2680,9 @@
                             class="w-4 h-4 border-2 border-[#0071e3] border-t-transparent rounded-full animate-spin"
                           ></span>
                           <span class="text-[#0071e3]"
-                            >希望スケジュールを自動保存中...</span
+                            >希望の変更を下書き保存中...</span
                           >
-                        {:else}
+                        {:else if isSubmitted}
                           <span class="relative flex h-2.5 w-2.5">
                             <span
                               class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"
@@ -2679,22 +2691,37 @@
                               class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"
                             ></span>
                           </span>
-                          <span class="text-emerald-600"
-                            >{isSubmitted ? "希望シフト提出済み（締め切りまで修正可能）" : "希望シフトは自動保存されています "}</span
+                          <span class="text-emerald-600 font-extrabold"
+                            >✅ 希望シフト提出済み</span
+                          >
+                        {:else}
+                          <span class="relative flex h-2.5 w-2.5">
+                            <span
+                              class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"
+                            ></span>
+                            <span
+                              class="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"
+                            ></span>
+                          </span>
+                          <span class="text-amber-600 font-extrabold"
+                            >⚠️ 下書き保存中（未提出です）</span
                           >
                         {/if}
                       </div>
                       <span
                         class="text-[10px] text-slate-400 leading-relaxed font-semibold"
                       >
-                        カレンダーをタップすると自動保存されます。
-                        提出締め切り ({deadlineObj ? deadlineObj.toLocaleString() : ""}) まで変更可能です。
+                        {#if isSubmitted}
+                          ※期限前であれば、タップしてカレンダーを変更後、再提出が可能です。
+                        {:else}
+                          ※カレンダー変更後は自動で下書き保存されますが、必ず下の「確定提出」ボタンを押して完了させてください。
+                        {/if}
                       </span>
                       <button
                         type="button"
                         on:click={handleExplicitSubmit}
                         disabled={isSubmittingShift}
-                        class="w-full py-3 transition-all flex items-center justify-center gap-2 text-xs font-bold rounded-2xl cursor-pointer border-0 bg-[#0071e3] hover:bg-[#0077f3] text-white shadow-[0_4px_12px_rgba(0,113,227,0.2)] active:scale-[0.99]"
+                        class="w-full py-3 transition-all flex items-center justify-center gap-2 text-xs font-bold rounded-2xl cursor-pointer border-0 active:scale-[0.99] {isSubmitted ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200' : 'bg-[#0071e3] hover:bg-[#0077f3] text-white shadow-[0_4px_12px_rgba(0,113,227,0.2)]'}"
                       >
                         {isSubmitted ? "提出内容を更新（再提出）" : "希望シフトを確定提出する"}
                       </button>
@@ -2853,7 +2880,7 @@
                     class="w-full btn-apple btn-secondary py-3.5 text-xs"
                   >
                     <Bell class="w-4 h-4 text-[#0071e3]" />
-                    提出リマインドをLINE一斉配信
+                    提出リマインドをプッシュ配信
                   </button>
                 </div>
 
@@ -3151,10 +3178,18 @@
                     <div class="space-y-2 max-h-[220px] overflow-y-auto pr-1">
                       {#each members.filter(m => m.isActive !== false) as m}
                         <div class="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-slate-100/80 hover:bg-slate-100/30 transition-all duration-200">
-                          <div class="flex items-center gap-2 min-w-0">
+                          <button
+                            type="button"
+                            on:click={() => openWishPreviewModal(m)}
+                            class="flex items-center gap-2.5 min-w-0 flex-1 text-left bg-transparent border-0 cursor-pointer outline-none hover:opacity-85 transition-all p-0"
+                            title={`${m.name}さんの希望カレンダーを表示`}
+                          >
+                            <div class="w-8 h-8 rounded-lg bg-slate-200/70 flex items-center justify-center text-xs font-extrabold text-slate-700 shrink-0 border border-slate-300/40">
+                              {m.initialChar || m.name.charAt(0)}
+                            </div>
                             <span class="text-sm select-none">{m.emoji}</span>
                             <div class="truncate">
-                              <p class="text-xs font-bold text-slate-800 truncate">{m.name}</p>
+                              <p class="text-xs font-bold text-slate-800 truncate hover:text-[#0071e3] transition-colors">{m.name} 🔍</p>
                               <p class="text-[9px] text-slate-400 font-medium">
                                 {#if m.roles?.includes('kitchen') && m.roles?.includes('hall')}
                                   🍳厨 / 🛎ホ
@@ -3165,13 +3200,22 @@
                                 {/if}
                               </p>
                             </div>
-                          </div>
-                          <button
-                            on:click={() => toggleMemberActive(m.id, false)}
-                            class="shrink-0 text-[10px] font-bold text-rose-500 hover:text-rose-600 hover:bg-rose-50 px-2.5 py-1.5 rounded-lg border border-rose-100 hover:border-rose-200 transition-all duration-150"
-                          >
-                            籍を外す
                           </button>
+                          <div class="flex items-center gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              on:click={() => toggleAdminPrivilege(m.id, !m.isAdmin)}
+                              class="text-[9px] font-extrabold px-2 py-1.5 rounded-lg border transition-all duration-150 {m.isAdmin ? 'bg-amber-500 hover:bg-amber-600 border-amber-600 text-white shadow-sm' : 'bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-600'}"
+                            >
+                              {m.isAdmin ? "👑 管理者" : "一般"}
+                            </button>
+                            <button
+                              on:click={() => toggleMemberActive(m.id, false)}
+                              class="text-[9px] font-bold text-rose-500 hover:text-rose-600 hover:bg-rose-50 px-2 py-1.5 rounded-lg border border-rose-100 hover:border-rose-200 transition-all duration-150"
+                            >
+                              籍を外す
+                            </button>
+                          </div>
                         </div>
                       {/each}
                     </div>
@@ -3207,6 +3251,28 @@
                       {/if}
                     </div>
                   </div>
+                </div>
+              </div>
+
+              <!-- システム・データ管理 -->
+              <div class="glass-panel p-6 space-y-4 bg-white mt-6 border border-red-100/50">
+                <div>
+                  <h3 class="text-sm font-bold text-red-600 tracking-tight flex items-center gap-1.5 select-none">
+                    ⚠️ システム管理者機能 (データリセット)
+                  </h3>
+                  <p class="text-xs text-slate-500 mt-0.5 font-medium leading-relaxed">
+                    データベース（全スタッフ籍および全希望シフト）を完全にクリーンリセットします。過去のデータはすべて消去され、デフォルトの管理者（パスコード: 8888）のみが作成されます。
+                  </p>
+                </div>
+
+                <div class="pt-2">
+                  <button
+                    type="button"
+                    on:click={handleDatabaseReset}
+                    class="py-3 px-5 transition-all text-xs font-black rounded-2xl cursor-pointer border bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-600 shadow-sm active:scale-95"
+                  >
+                    🚨 データベースを完全にリセットする
+                  </button>
                 </div>
               </div>
             </div>
@@ -3520,6 +3586,123 @@
       </div>
     </div>
   {/if}
+
+  {#if selectedModalMember}
+    <!-- Backdrop overlay -->
+    <!-- svelte-ignore a11y_click_events_have_key_events -->
+    <!-- svelte-ignore a11y_no_static_element_interactions -->
+    <div
+      class="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[100] flex items-center justify-center p-4"
+      on:click={() => (selectedModalMember = null)}
+      in:fade={{ duration: 150 }}
+      out:fade={{ duration: 150 }}
+    >
+      <!-- Modal card container -->
+      <div
+        class="bg-white rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl border border-slate-100 animate-popup"
+        on:click|stopPropagation
+      >
+        <!-- Header -->
+        <div class="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-[#0071e3]/10 flex items-center justify-center text-[#0071e3] font-bold border border-[#0071e3]/20 select-none">
+              {selectedModalMember.initialChar || selectedModalMember.name.charAt(0)}
+            </div>
+            <div class="text-left">
+              <h3 class="text-sm font-black text-slate-800 tracking-tight">
+                {selectedModalMember.name} さんの希望シフト状況
+              </h3>
+              <p class="text-[10px] text-slate-400 font-bold mt-0.5 uppercase tracking-wider">
+                対象期間: {currentPeriodLabel}
+              </p>
+            </div>
+          </div>
+          <button
+            on:click={() => (selectedModalMember = null)}
+            class="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 flex items-center justify-center transition-colors border-0 cursor-pointer"
+            aria-label="閉じる"
+          >
+            <X class="w-4 h-4" />
+          </button>
+        </div>
+
+        <!-- Body -->
+        <div class="p-6 space-y-6">
+          <!-- Submission summary status -->
+          <div class="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 text-xs font-semibold">
+            <span class="text-slate-500">提出状況</span>
+            <span class="flex items-center gap-1.5 font-bold">
+              {#if isModalSubmitted}
+                <span class="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981]"></span>
+                <span class="text-emerald-600">確定提出済み</span>
+              {:else}
+                <span class="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_8px_#f59e0b]"></span>
+                <span class="text-amber-600">下書き保存（未提出）</span>
+              {/if}
+            </span>
+          </div>
+
+          <!-- Calendar Grid -->
+          <div class="space-y-3">
+            <!-- 曜日ヘッダー -->
+            <div class="grid grid-cols-7 gap-2.5 text-center text-[10px] font-black text-slate-400 tracking-widest uppercase">
+              {#each CALENDAR_HEADERS as h}
+                <div>{h}</div>
+              {/each}
+            </div>
+
+            <!-- 日付セル -->
+            <div class="grid grid-cols-7 gap-2.5">
+              {#each modalGridCells as d}
+                {@const isRegularClosed = d.isRegularClosed}
+                {@const isSpecialClosed = specialHolidays.includes(d.dateStr)}
+                {@const isClosed = isRegularClosed || isSpecialClosed}
+                {@const isAvail = modalAvailabilities[d.dateStr] !== undefined
+                  ? modalAvailabilities[d.dateStr]
+                  : modalSubmitPattern === "A"}
+                {@const isNG = !isAvail}
+                
+                <div class="aspect-square rounded-xl border flex flex-col justify-between p-2 select-none relative transition-all duration-200 {d.isOtherMonth
+                  ? 'bg-slate-50/50 border-slate-100 text-slate-300'
+                  : isClosed
+                    ? 'bg-slate-100/60 border-slate-200 text-slate-400 font-bold'
+                    : isNG
+                      ? 'bg-rose-500/10 border-rose-500/20 text-rose-700 shadow-sm'
+                      : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-700 shadow-sm'}"
+                >
+                  <!-- 日付数値 -->
+                  <span class="text-xs font-bold leading-none">{d.dayNum}</span>
+
+                  <!-- 希望状況ステータスラベル -->
+                  <div class="text-center w-full pb-0.5">
+                    {#if d.isOtherMonth}
+                      <!-- なし -->
+                    {:else if isClosed}
+                      <span class="text-[9px] font-black text-slate-400">定休</span>
+                    {:else if isNG}
+                      <span class="text-[9px] font-black text-rose-600 block">❌ 休み</span>
+                    {:else}
+                      <span class="text-[9px] font-black text-emerald-600 block">🟢 出勤</span>
+                    {/if}
+                  </div>
+                </div>
+              {/each}
+            </div>
+          </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="px-6 py-4 bg-slate-50/50 border-t border-slate-100 flex justify-end">
+          <button
+            on:click={() => (selectedModalMember = null)}
+            class="px-5 py-2.5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold transition-colors border-0 cursor-pointer active:scale-95"
+          >
+            閉じる
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -3689,36 +3872,52 @@
     box-shadow: 0 8px 24px rgba(255, 255, 255, 0.12) !important;
   }
 
-  .apple-segmented-status {
-    display: flex;
-    background-color: rgba(255, 255, 255, 0.04) !important;
-    border: 1px solid rgba(255, 255, 255, 0.05) !important;
-    border-radius: 14px !important;
-    padding: 3px !important;
+  .apple-toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 51px;
+    height: 31px;
+    flex-shrink: 0;
   }
 
-  .apple-status-btn {
-    flex: 1 !important;
-    background: transparent !important;
-    border: none !important;
-    border-radius: 11px !important;
-    padding: 10px 0 !important;
-    color: #8e8e93 !important;
-    font-size: 13px !important;
-    font-weight: 600 !important;
-    cursor: pointer !important;
-    transition: all 0.25s cubic-bezier(0.25, 0.1, 0.25, 1) !important;
+  .apple-toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
   }
 
-  .apple-status-btn:hover {
-    color: #ffffff !important;
+  .apple-toggle-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(255, 255, 255, 0.16);
+    transition: .4s;
+    border-radius: 34px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
   }
 
-  .apple-status-btn.active {
-    background-color: #ffffff !important;
-    color: #000000 !important;
-    font-weight: 700 !important;
-    box-shadow: 0 4px 10px rgba(255, 255, 255, 0.08) !important;
+  .apple-toggle-slider:before {
+    position: absolute;
+    content: "";
+    height: 27px;
+    width: 27px;
+    left: 1px;
+    bottom: 1px;
+    background-color: #ffffff;
+    transition: .4s;
+    border-radius: 50%;
+    box-shadow: 0px 3px 8px rgba(0, 0, 0, 0.4), 0px 3px 1px rgba(0, 0, 0, 0.1);
+  }
+
+  .apple-toggle-switch input:checked + .apple-toggle-slider {
+    background-color: #34c759; /* Apple Green */
+  }
+
+  .apple-toggle-switch input:checked + .apple-toggle-slider:before {
+    transform: translateX(20px);
   }
 
   .apple-btn-submit {
@@ -3753,23 +3952,7 @@
     cursor: not-allowed !important;
   }
 
-  .apple-btn-cancel {
-    width: 100% !important;
-    background: transparent !important;
-    border: none !important;
-    color: #86868b !important;
-    font-size: 12px !important;
-    font-weight: 500 !important;
-    text-align: center !important;
-    cursor: pointer !important;
-    margin-top: 1rem !important;
-    transition: color 0.2s ease !important;
-  }
 
-  .apple-btn-cancel:hover {
-    color: #ffffff !important;
-    text-decoration: underline !important;
-  }
 
   .apple-loading-spinner {
     width: 16px;

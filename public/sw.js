@@ -82,3 +82,57 @@ self.addEventListener('fetch', (event) => {
     );
   }
 });
+
+// ==========================================
+// Web Push Notification Listener
+// ==========================================
+self.addEventListener('push', (event) => {
+  let payload = {};
+  if (event.data) {
+    try {
+      payload = event.data.json();
+    } catch (e) {
+      payload = { title: '🍎 桃牛苑 シフト提出のお願い', body: event.data.text() };
+    }
+  }
+
+  const title = payload.title || '🍎 桃牛苑 シフト提出のお願い';
+  const body = payload.body || '本日シフトの締め切り日です。アプリから入力をお願いします。';
+  const icon = payload.icon || '/icon-192.png';
+  const url = payload.url || '/';
+
+  const options = {
+    body,
+    icon,
+    badge: '/icon-192.png',
+    tag: 'shift-reminder', // Ensures duplicate reminders overwrite instead of creating multiple alerts
+    renotify: true, // Alerts the user even if tag is the same
+    requireInteraction: false,
+    data: { url }
+  };
+
+  event.waitUntil(
+    self.registration.showNotification(title, options)
+  );
+});
+
+// Notification click event handler
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetUrl = event.notification.data?.url || '/';
+
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      // If window is already open, focus it
+      for (const client of clientList) {
+        if (client.url.includes(self.location.origin) && 'focus' in client) {
+          return client.focus();
+        }
+      }
+      // Otherwise, open a new window
+      if (clients.openWindow) {
+        return clients.openWindow(targetUrl);
+      }
+    })
+  );
+});
