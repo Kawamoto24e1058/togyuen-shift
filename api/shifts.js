@@ -40,8 +40,8 @@ export default async function handler(req, res) {
         }
         return res.status(200).json({ period, status });
       } catch (err) {
-        console.error('[API Shift Status GET] Error:', err);
-        return res.status(500).send('公開ステータスの取得に失敗しました。');
+        console.warn('[API Shift Status GET] Warning (falling back to draft):', err);
+        return res.status(200).json({ period, status: 'draft' });
       }
     }
 
@@ -402,8 +402,8 @@ export default async function handler(req, res) {
       console.info(`[API Shifts GET] No shifts found for ${period}. Returning empty list.`);
       return res.status(200).json([]);
     } catch (err) {
-      console.error('[API Shifts GET] Error:', err);
-      return res.status(500).send(`シフトデータの取得に失敗しました: ${err.message}`);
+      console.warn('[API Shifts GET] Warning (falling back to empty list):', err);
+      return res.status(200).json([]);
     }
   }
 

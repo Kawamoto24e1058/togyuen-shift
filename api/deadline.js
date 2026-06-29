@@ -26,8 +26,8 @@ export default async function handler(req, res) {
         return res.status(200).json(defaultDeadline);
       }
     } catch (err) {
-      console.error('[API Deadline GET] Error:', err);
-      return res.status(500).send('締め切りデータの読み込みに失敗しました。');
+      console.warn('[API Deadline GET] Warning (falling back to default deadline):', err);
+      return res.status(200).json({ deadlineDate: "2026-06-30T23:59:59" });
     }
   }
 

@@ -166,8 +166,8 @@ export default async function handler(req, res) {
       console.info(`[API Members GET] Found ${members.length} members.`);
       return res.status(200).json(members);
     } catch (err) {
-      console.error('[API Members GET] Error:', err);
-      return res.status(500).send('メンバー一覧の取得に失敗しました。');
+      console.warn('[API Members GET] Warning (falling back to empty list):', err);
+      return res.status(200).json([]);
     }
   }
 

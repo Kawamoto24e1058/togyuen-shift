@@ -660,6 +660,15 @@
       pushPermissionStatus = "granted";
 
       const registration = await navigator.serviceWorker.ready;
+
+      // 既存の購読が残っていた場合は一旦解除してクリーンに再登録する
+      // (applicationServerKey が変わると InvalidStateError が発生するため)
+      const existingSubscription = await registration.pushManager.getSubscription();
+      if (existingSubscription) {
+        console.info('[Push] 既存の購読を解除してクリーン再登録します...');
+        await existingSubscription.unsubscribe();
+      }
+
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(VAPID_KEY)

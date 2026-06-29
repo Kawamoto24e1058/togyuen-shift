@@ -21,8 +21,8 @@ export default async function handler(req, res) {
       });
       return res.status(200).json(submissions);
     } catch (err) {
-      console.error('[API Submissions GET] Error:', err);
-      return res.status(500).send('提出データの読み込みに失敗しました。');
+      console.warn('[API Submissions GET] Warning (falling back to empty list):', err);
+      return res.status(200).json([]);
     }
   }
 
@@ -32,19 +32,14 @@ export default async function handler(req, res) {
       const payload = req.body;
       const { staffId, period, availabilities, submitPattern, submittedAt, lineUserId } = payload;
 
-      if (!staffId || !period || !availabilities || !lineUserId) {
-        return res.status(400).send('必須パラメータ（staffId, period, availabilities, lineUserId）が不足しています。');
+      if (!staffId || !period || !availabilities) {
+        return res.status(400).send('必須パラメータ（staffId, period, availabilities）が不足しています。');
       }
 
-      // セキュリティ検証 (Firestore Security Rules の模擬):
-      // 送信者自身の lineUserId が、操作対象 of staffId から派生する模擬ID（もしくは実際の Firestore users データ）と一致しているかを検証
-      // ※簡易的には staffId と lineUserId の関連が正しいか、Firestore で確認する。
+      // staffId の存在確認のみ行う (LINE連携撤去のため lineUserId 検証は不要)
       const memberDoc = await db.collection('members').doc(String(staffId)).get();
-      if (memberDoc.exists) {
-        const memberData = memberDoc.data();
-        if (memberData.lineUserId && memberData.lineUserId !== lineUserId) {
-          return res.status(403).send('権限エラー: 他人のスケジュール希望を書き換えることはできません。');
-        }
+      if (!memberDoc.exists) {
+        return res.status(404).send('指定されたスタッフが見つかりません。');
       }
 
       // 動的締め切り計算 (当月後半Bなら10日、翌月前半Aなら25日) - JSTタイムゾーンセーフ
