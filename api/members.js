@@ -13,7 +13,7 @@ export default async function handler(req, res) {
 
   // Vercel/Local dispatch supporting action query param and raw url path parsing
   const urlParts = req.url.split('?')[0].split('/');
-  const action = req.query.action || urlParts[3] || req.body.action || '';
+  const action = req.query.action || urlParts[3] || (req.body && req.body.action) || '';
 
   // ==========================================
   // DISPATCH: archive (POST)

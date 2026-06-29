@@ -20,14 +20,14 @@ export default async function handler(req, res) {
 
   // Vercel/Local dispatch supporting subpath query param and raw url path parsing
   const urlParts = req.url.split('?')[0].split('/');
-  const subpath = req.query.subpath || urlParts[3] || req.body.action || '';
+  const subpath = req.query.subpath || urlParts[3] || (req.body && req.body.action) || '';
   const rootDir = path.resolve(__dirname, '../');
 
   // ==========================================
   // DISPATCH: status (GET/POST)
   // ==========================================
   if (subpath === 'status') {
-    const period = req.query.period || req.body.period || '2026-06';
+    const period = req.query.period || (req.body && req.body.period) || '2026-06';
     if (req.method === 'GET') {
       try {
         console.info(`[API Shift Status GET] Fetching status for period: ${period}`);
@@ -353,7 +353,7 @@ export default async function handler(req, res) {
   // ==========================================
   // DEFAULT ACTIONS: GET/POST (save / list)
   // ==========================================
-  const period = req.query.period || req.body.period || '2026-06';
+  const period = req.query.period || (req.body && req.body.period) || '2026-06';
 
   // GET: 指定期間のシフトデータをロード
   if (req.method === 'GET') {

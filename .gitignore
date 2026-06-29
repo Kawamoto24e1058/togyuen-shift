@@ -38,3 +38,5 @@ __pycache__/
 
 # 一時作業スクリプト
 scratch/
+.vercel
+.env*
