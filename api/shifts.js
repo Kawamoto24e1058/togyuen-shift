@@ -1,6 +1,6 @@
 // api/shifts.js
 import { db } from './_lib/firebase-admin.js';
-import { exec } from 'child_process';
+import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -169,28 +169,29 @@ export default async function handler(req, res) {
           availabilities
         }));
 
-      const sampleDataPath = path.join(rootDir, 'sample_data.json');
-      const assignedShiftsPath = path.join(rootDir, 'assigned_shifts.json');
-      const publicShiftsPath = path.join(rootDir, 'public', 'assigned_shifts.json');
+      // -------------------------------------------------------
+      // /tmp を一時ファイル置き場として使用（Vercel 本番対応）
+      // -------------------------------------------------------
+      const tmpSampleDataPath = path.join('/tmp', `sample_data_${period}.json`);
+      const tmpOutputPath     = path.join('/tmp', `output_${period}.json`);
 
+      // ロックされたシフトを Firestore から取得
       let lockedAssignments = [];
-      const periodAssignedShiftsPath = path.join(rootDir, `assigned_shifts_${period}.json`);
-      const pathToCheck = fs.existsSync(periodAssignedShiftsPath) ? periodAssignedShiftsPath : assignedShiftsPath;
-      if (fs.existsSync(pathToCheck)) {
-        try {
-          const rawShifts = fs.readFileSync(pathToCheck, 'utf8');
-          const existingShifts = JSON.parse(rawShifts);
-          if (Array.isArray(existingShifts)) {
-            lockedAssignments = existingShifts.filter(s => {
-              if (s.isLocked !== true) return false;
-              if (!activeMemberIds.has(Number(s.member_id))) return false; // Filter out retired members!
-              return s.date >= startDateStr && s.date <= endDateStr;
-            });
+      try {
+        const existingShiftsSnap = await db.collection('shifts')
+          .where('period', '==', period)
+          .where('isLocked', '==', true)
+          .get();
+        existingShiftsSnap.forEach(doc => {
+          const s = doc.data();
+          if (!activeMemberIds.has(Number(s.member_id))) return; // 退職者は除外
+          if (s.date >= startDateStr && s.date <= endDateStr) {
+            lockedAssignments.push(s);
           }
-          console.info(`[API Shift Generate] Found ${lockedAssignments.length} locked assignments in ${path.basename(pathToCheck)} for period ${period} to preserve.`);
-        } catch (e) {
-          console.warn('[API Shift Generate] Warning: Failed to parse existing assigned_shifts:', e);
-        }
+        });
+        console.info(`[API Shift Generate] Found ${lockedAssignments.length} locked assignments in Firestore for period ${period}.`);
+      } catch (e) {
+        console.warn('[API Shift Generate] Warning: Failed to fetch locked assignments from Firestore:', e);
       }
 
       const sampleData = {
@@ -202,58 +203,101 @@ export default async function handler(req, res) {
         locked_assignments: lockedAssignments
       };
 
-      console.info(`[API Shift Generate] Writing live data to ${sampleDataPath}`);
-      fs.writeFileSync(sampleDataPath, JSON.stringify(sampleData, null, 2), 'utf8');
+      console.info(`[API Shift Generate] Writing live data to ${tmpSampleDataPath}`);
+      fs.writeFileSync(tmpSampleDataPath, JSON.stringify(sampleData, null, 2), 'utf8');
 
       console.info('[API Shift Generate] Spawning Python PuLP Solver...');
-      
-      let pythonCmd = 'python3 shift_generator.py';
+
+      // Python 実行コマンドの決定
+      const pythonScriptPath = path.join(rootDir, 'shift_generator.py');
+      let pythonBin = 'python3';
       const venvPythonPath = path.join(rootDir, 'venv', 'bin', 'python3');
+      const venvWinPythonPath = path.join(rootDir, 'venv', 'Scripts', 'python.exe');
       if (fs.existsSync(venvPythonPath)) {
-        console.info(`[API Shift Generate] Using local venv Python: ${venvPythonPath}`);
-        pythonCmd = `"${venvPythonPath}" shift_generator.py`;
-      } else {
-        const venvWinPythonPath = path.join(rootDir, 'venv', 'Scripts', 'python.exe');
-        if (fs.existsSync(venvWinPythonPath)) {
-          console.info(`[API Shift Generate] Using local Windows venv Python: ${venvWinPythonPath}`);
-          pythonCmd = `"${venvWinPythonPath}" shift_generator.exe`;
-        }
+        pythonBin = venvPythonPath;
+        console.info(`[API Shift Generate] Using local venv Python: ${pythonBin}`);
+      } else if (fs.existsSync(venvWinPythonPath)) {
+        pythonBin = venvWinPythonPath;
+        console.info(`[API Shift Generate] Using local Windows venv Python: ${pythonBin}`);
+      }
+
+      // 入出力パスをコマンドライン引数として渡す
+      const pythonArgs = [
+        pythonScriptPath,
+        '--input',  tmpSampleDataPath,
+        '--output', tmpOutputPath
+      ];
+
+      // 一時ファイルのクリーンアップヘルパー
+      function cleanupTmpFiles() {
+        [tmpSampleDataPath, tmpOutputPath].forEach(p => {
+          try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch (_) {}
+        });
       }
 
       return new Promise((resolve) => {
-        exec(pythonCmd, { cwd: rootDir }, (error, stdout, stderr) => {
-          if (error) {
-            console.error('[API Shift Generate] Python exec error:', error);
-            console.error('[API Shift Generate] Python stderr:', stderr);
-            res.status(500).send(`シフト自動作成に失敗しました(Solver Error): ${error.message}`);
+        const proc = spawn(pythonBin, pythonArgs, { cwd: rootDir });
+
+        let stdoutBuf = '';
+        let stderrBuf = '';
+        proc.stdout.on('data', d => { stdoutBuf += d.toString(); });
+        proc.stderr.on('data', d => { stderrBuf += d.toString(); });
+
+        proc.on('close', async (code) => {
+          console.info('[API Shift Generate] Python stdout:\n', stdoutBuf);
+          if (stderrBuf) console.warn('[API Shift Generate] Python stderr:\n', stderrBuf);
+
+          if (code !== 0) {
+            console.error(`[API Shift Generate] Python process exited with code ${code}`);
+            cleanupTmpFiles();
+            res.status(500).send(`シフト自動作成に失敗しました(Solver Error): exit code ${code}\n${stderrBuf}`);
             return resolve();
           }
 
-          console.info('[API Shift Generate] Python stdout:\n', stdout);
-
           try {
-            if (!fs.existsSync(assignedShiftsPath)) {
-              throw new Error('assigned_shifts.json が生成されませんでした。');
+            if (!fs.existsSync(tmpOutputPath)) {
+              throw new Error(`${tmpOutputPath} が生成されませんでした。`);
             }
 
-            const rawShifts = fs.readFileSync(assignedShiftsPath, 'utf8');
+            const rawShifts = fs.readFileSync(tmpOutputPath, 'utf8');
             const shifts = JSON.parse(rawShifts);
 
-            const periodAssignedShiftsPath = path.join(rootDir, `assigned_shifts_${period}.json`);
-            const periodPublicShiftsPath = path.join(rootDir, 'public', `assigned_shifts_${period}.json`);
-            
-            fs.writeFileSync(periodAssignedShiftsPath, JSON.stringify(shifts, null, 2), 'utf8');
-            if (!fs.existsSync(path.join(rootDir, 'public'))) {
-              fs.mkdirSync(path.join(rootDir, 'public'), { recursive: true });
-            }
-            fs.writeFileSync(periodPublicShiftsPath, JSON.stringify(shifts, null, 2), 'utf8');
+            // -------------------------------------------------------
+            // Firestore `shifts` コレクションへ保存
+            // -------------------------------------------------------
+            try {
+              console.info(`[API Shift Generate] Saving ${shifts.length} shifts to Firestore (period: ${period})...`);
 
-            if (period === '2026-06') {
-              fs.writeFileSync(assignedShiftsPath, JSON.stringify(shifts, null, 2), 'utf8');
-              fs.writeFileSync(publicShiftsPath, JSON.stringify(shifts, null, 2), 'utf8');
+              // 既存の同期間シフトを一括削除してから再書き込み
+              const existingSnap = await db.collection('shifts').where('period', '==', period).get();
+              const deletePromises = [];
+              existingSnap.forEach(doc => deletePromises.push(doc.ref.delete()));
+              await Promise.all(deletePromises);
+
+              // バッチ書き込み（Firestore は1バッチ最大500件）
+              const BATCH_SIZE = 400;
+              for (let i = 0; i < shifts.length; i += BATCH_SIZE) {
+                const batch = db.batch();
+                shifts.slice(i, i + BATCH_SIZE).forEach(shift => {
+                  const docRef = db.collection('shifts').doc();
+                  batch.set(docRef, {
+                    ...shift,
+                    period,
+                    savedAt: new Date().toISOString()
+                  });
+                });
+                await batch.commit();
+              }
+              console.info(`[API Shift Generate] Firestore save complete.`);
+            } catch (firestoreErr) {
+              // Firestore 保存失敗はログに残すが、クライアントには成功を返す
+              // （生成データ自体は正常なため、致命的エラーとしない）
+              console.error('[API Shift Generate] Firestore save failed (non-fatal):', firestoreErr);
             }
 
-            console.info(`[API Shift Generate] Successfully generated and saved ${shifts.length} shift assignments for period ${period}!`);
+            cleanupTmpFiles();
+
+            console.info(`[API Shift Generate] Successfully generated ${shifts.length} shift assignments for period ${period}!`);
             res.status(200).json({
               message: 'AIシフト自動作成に成功しました。',
               count: shifts.length,
@@ -261,10 +305,18 @@ export default async function handler(req, res) {
             });
             resolve();
           } catch (err) {
+            cleanupTmpFiles();
             console.error('[API Shift Generate] Output read failed:', err);
             res.status(500).send(`シフト結果の読み込みに失敗しました: ${err.message}`);
             resolve();
           }
+        });
+
+        proc.on('error', (err) => {
+          cleanupTmpFiles();
+          console.error('[API Shift Generate] Failed to start Python process:', err);
+          res.status(500).send(`Pythonプロセスの起動に失敗しました: ${err.message}`);
+          resolve();
         });
       });
 
@@ -352,62 +404,44 @@ export default async function handler(req, res) {
 
   // ==========================================
   // DEFAULT ACTIONS: GET/POST (save / list)
+  // 全て Firestore ベースで動作（Vercel 読み取り専用FS対応）
   // ==========================================
   const period = req.query.period || (req.body && req.body.period) || '2026-06';
 
-  // GET: 指定期間のシフトデータをロード
+  // GET: 指定期間のシフトデータを Firestore からロード
   if (req.method === 'GET') {
     try {
-      const targetPath = path.join(rootDir, `assigned_shifts_${period}.json`);
-      console.info(`[API Shifts GET] Loading shifts for period ${period} from ${targetPath}...`);
+      console.info(`[API Shifts GET] Loading shifts for period ${period} from Firestore...`);
 
-      if (fs.existsSync(targetPath)) {
-        const raw = fs.readFileSync(targetPath, 'utf8');
-        return res.status(200).json(JSON.parse(raw));
-      }
+      // period 完全一致で検索（例: '2026-07-A'）
+      const snap = await db.collection('shifts').where('period', '==', period).get();
+      let shifts = [];
+      snap.forEach(doc => shifts.push(doc.data()));
 
-      if (period.endsWith('-A') || period.endsWith('-B')) {
+      // おかじでデータなしの場合: ベース月（'YYYY-MM'）でフォールバック
+      if (shifts.length === 0 && (period.endsWith('-A') || period.endsWith('-B'))) {
         const basePeriod = period.substring(0, 7);
-        const basePaths = [
-          path.join(rootDir, `assigned_shifts_${basePeriod}.json`),
-          path.join(rootDir, 'assigned_shifts.json')
-        ];
-        for (const basePath of basePaths) {
-          if (fs.existsSync(basePath)) {
-            console.info(`[API Shifts GET] Falling back to monthly file: ${basePath}`);
-            const raw = fs.readFileSync(basePath, 'utf8');
-            const allShifts = JSON.parse(raw);
-            const half = period.substring(8);
-            const filtered = allShifts.filter(shift => {
-              if (!shift.date || !shift.date.startsWith(basePeriod)) return false;
-              const day = Number(shift.date.split('-')[2]);
-              if (half === 'A') {
-                return day <= 15;
-              } else {
-                return day >= 16;
-              }
-            });
-            return res.status(200).json(filtered);
-          }
-        }
+        const half = period.substring(8);
+        console.info(`[API Shifts GET] Falling back to base period ${basePeriod} in Firestore...`);
+        const baseSnap = await db.collection('shifts').where('period', '==', basePeriod).get();
+        baseSnap.forEach(doc => {
+          const s = doc.data();
+          if (!s.date) return;
+          const day = Number(s.date.split('-')[2]);
+          if (half === 'A' && day <= 15) shifts.push(s);
+          if (half === 'B' && day >= 16) shifts.push(s);
+        });
       }
 
-      const defaultPath = path.join(rootDir, 'assigned_shifts.json');
-      if (period === '2026-06' && fs.existsSync(defaultPath)) {
-        console.info(`[API Shifts GET] Falling back to default assigned_shifts.json`);
-        const raw = fs.readFileSync(defaultPath, 'utf8');
-        return res.status(200).json(JSON.parse(raw));
-      }
-
-      console.info(`[API Shifts GET] No shifts found for ${period}. Returning empty list.`);
-      return res.status(200).json([]);
+      console.info(`[API Shifts GET] Returning ${shifts.length} shifts for ${period}.`);
+      return res.status(200).json(shifts);
     } catch (err) {
       console.warn('[API Shifts GET] Warning (falling back to empty list):', err);
       return res.status(200).json([]);
     }
   }
 
-  // POST: 指定期間のシフトデータを保存 (save)
+  // POST: 指定期間のシフトデータを Firestore に保存 (save)
   if (req.method === 'POST') {
     try {
       const { shifts } = req.body || {};
@@ -415,25 +449,30 @@ export default async function handler(req, res) {
         return res.status(400).send('無効なシフトデータです。');
       }
 
-      console.info(`[API Shifts POST] Saving ${shifts.length} shifts for period ${period}...`);
+      console.info(`[API Shifts POST] Saving ${shifts.length} shifts for period ${period} to Firestore...`);
 
-      const targetPath = path.join(rootDir, `assigned_shifts_${period}.json`);
-      const targetPublicPath = path.join(rootDir, 'public', `assigned_shifts_${period}.json`);
+      // 既存の同期間シフトを全削除
+      const existingSnap = await db.collection('shifts').where('period', '==', period).get();
+      const deletePromises = [];
+      existingSnap.forEach(doc => deletePromises.push(doc.ref.delete()));
+      await Promise.all(deletePromises);
 
-      fs.writeFileSync(targetPath, JSON.stringify(shifts, null, 2), 'utf8');
-      
-      if (!fs.existsSync(path.join(rootDir, 'public'))) {
-        fs.mkdirSync(path.join(rootDir, 'public'), { recursive: true });
+      // バッチ書き込み（Firestore は1バッチ最大500件）
+      const BATCH_SIZE = 400;
+      for (let i = 0; i < shifts.length; i += BATCH_SIZE) {
+        const batch = db.batch();
+        shifts.slice(i, i + BATCH_SIZE).forEach(shift => {
+          const docRef = db.collection('shifts').doc();
+          batch.set(docRef, {
+            ...shift,
+            period,
+            savedAt: new Date().toISOString()
+          });
+        });
+        await batch.commit();
       }
-      fs.writeFileSync(targetPublicPath, JSON.stringify(shifts, null, 2), 'utf8');
 
-      if (period === '2026-06') {
-        const defaultPath = path.join(rootDir, 'assigned_shifts.json');
-        const defaultPublicPath = path.join(rootDir, 'public', 'assigned_shifts.json');
-        fs.writeFileSync(defaultPath, JSON.stringify(shifts, null, 2), 'utf8');
-        fs.writeFileSync(defaultPublicPath, JSON.stringify(shifts, null, 2), 'utf8');
-      }
-
+      console.info(`[API Shifts POST] Successfully saved ${shifts.length} shifts for ${period} to Firestore.`);
       return res.status(200).json({
         success: true,
         message: `${period} のシフト調整データを正常に保存しました。`,

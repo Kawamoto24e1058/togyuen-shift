@@ -4,6 +4,7 @@
 import os
 import sys
 import json
+import argparse
 from datetime import datetime, timedelta
 
 # PuLPのインポートを試み、無ければインストールを促すか自動インポートする
@@ -22,7 +23,7 @@ except ImportError:
         print("手動で 'pip install pulp' を実行した後に再度スクリプトを動かしてください。")
         sys.exit(1)
 
-def generate_shift(data_path="sample_data.json"):
+def generate_shift(data_path="sample_data.json", output_path="assigned_shifts.json"):
     # 1. データの読み込み
     if not os.path.exists(data_path):
         print(f"エラー: データファイル {data_path} が見つかりません。")
@@ -331,21 +332,26 @@ def generate_shift(data_path="sample_data.json"):
         print("❌ 制約条件テストでエラーが検出されました。")
 
     # 8. 結果のJSON保存
-    output_path = "assigned_shifts.json"
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(assigned_shifts, f, ensure_ascii=False, indent=2)
     
-    # public フォルダにも保存（Svelteからfetchしやすくするため）
-    os.makedirs("public", exist_ok=True)
-    public_path = os.path.join("public", "assigned_shifts.json")
-    try:
-        with open(public_path, "w", encoding="utf-8") as f:
-            json.dump(assigned_shifts, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        print(f"警告: public/assigned_shifts.json の保存に失敗しました: {e}")
+    # ローカル実行時のみ public フォルダにもコピー（Vercel本番環境ではスキップ）
+    is_local_run = not output_path.startswith('/tmp')
+    if is_local_run:
+        os.makedirs("public", exist_ok=True)
+        public_path = os.path.join("public", "assigned_shifts.json")
+        try:
+            with open(public_path, "w", encoding="utf-8") as f:
+                json.dump(assigned_shifts, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"警告: public/assigned_shifts.json の保存に失敗しました: {e}")
         
     print(f"確定シフトを下書きデータとして {output_path} に保存しました。")
     print("=" * 80)
 
 if __name__ == "__main__":
-    generate_shift()
+    parser = argparse.ArgumentParser(description="桌牛苑 シフト自動生成 (PuLPソルバー)")
+    parser.add_argument('--input',  default='sample_data.json',   help='入力データ JSON パス')
+    parser.add_argument('--output', default='assigned_shifts.json', help='出力 JSON パス')
+    args = parser.parse_args()
+    generate_shift(data_path=args.input, output_path=args.output)
