@@ -1,12 +1,6 @@
 // api/shifts.js
 import { db } from './_lib/firebase-admin.js';
-import { spawn } from 'child_process';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { generateShift } from './_lib/shift-solver.js';
 
 export default async function handler(req, res) {
   // CORSヘッダー設定
@@ -21,7 +15,6 @@ export default async function handler(req, res) {
   // Vercel/Local dispatch supporting subpath query param and raw url path parsing
   const urlParts = req.url.split('?')[0].split('/');
   const subpath = req.query.subpath || urlParts[3] || (req.body && req.body.action) || '';
-  const rootDir = path.resolve(__dirname, '../');
 
   // ==========================================
   // DISPATCH: status (GET/POST)
@@ -169,12 +162,6 @@ export default async function handler(req, res) {
           availabilities
         }));
 
-      // -------------------------------------------------------
-      // /tmp を一時ファイル置き場として使用（Vercel 本番対応）
-      // -------------------------------------------------------
-      const tmpSampleDataPath = path.join('/tmp', `sample_data_${period}.json`);
-      const tmpOutputPath     = path.join('/tmp', `output_${period}.json`);
-
       // ロックされたシフトを Firestore から取得
       let lockedAssignments = [];
       try {
@@ -184,7 +171,7 @@ export default async function handler(req, res) {
           .get();
         existingShiftsSnap.forEach(doc => {
           const s = doc.data();
-          if (!activeMemberIds.has(Number(s.member_id))) return; // 退職者は除外
+          if (!activeMemberIds.has(Number(s.member_id))) return;
           if (s.date >= startDateStr && s.date <= endDateStr) {
             lockedAssignments.push(s);
           }
@@ -194,130 +181,54 @@ export default async function handler(req, res) {
         console.warn('[API Shift Generate] Warning: Failed to fetch locked assignments from Firestore:', e);
       }
 
-      const sampleData = {
+      // -------------------------------------------------------
+      // JS ソルバーで直接シフト生成（Python 不要）
+      // -------------------------------------------------------
+      console.info('[API Shift Generate] Running JS shift solver...');
+      const shifts = generateShift({
         start_date: startDateStr,
         end_date: endDateStr,
         members,
         special_holidays: specialHolidays,
         submissions,
         locked_assignments: lockedAssignments
-      };
+      });
 
-      console.info(`[API Shift Generate] Writing live data to ${tmpSampleDataPath}`);
-      fs.writeFileSync(tmpSampleDataPath, JSON.stringify(sampleData, null, 2), 'utf8');
+      if (!shifts || shifts.length === 0) {
+        return res.status(500).send('シフトの生成に失敗しました。スタッフ数・シフト希望データを確認してください。');
+      }
+      console.info(`[API Shift Generate] JS solver produced ${shifts.length} assignments.`);
 
-      console.info('[API Shift Generate] Spawning Python PuLP Solver...');
+      // -------------------------------------------------------
+      // Firestore `shifts` コレクションへ保存
+      // -------------------------------------------------------
+      try {
+        console.info(`[API Shift Generate] Saving ${shifts.length} shifts to Firestore (period: ${period})...`);
 
-      // Python 実行コマンドの決定
-      const pythonScriptPath = path.join(rootDir, 'shift_generator.py');
-      let pythonBin = 'python3';
-      const venvPythonPath = path.join(rootDir, 'venv', 'bin', 'python3');
-      const venvWinPythonPath = path.join(rootDir, 'venv', 'Scripts', 'python.exe');
-      if (fs.existsSync(venvPythonPath)) {
-        pythonBin = venvPythonPath;
-        console.info(`[API Shift Generate] Using local venv Python: ${pythonBin}`);
-      } else if (fs.existsSync(venvWinPythonPath)) {
-        pythonBin = venvWinPythonPath;
-        console.info(`[API Shift Generate] Using local Windows venv Python: ${pythonBin}`);
+        const existingSnap = await db.collection('shifts').where('period', '==', period).get();
+        const deletePromises = [];
+        existingSnap.forEach(doc => deletePromises.push(doc.ref.delete()));
+        await Promise.all(deletePromises);
+
+        const BATCH_SIZE = 400;
+        for (let i = 0; i < shifts.length; i += BATCH_SIZE) {
+          const batch = db.batch();
+          shifts.slice(i, i + BATCH_SIZE).forEach(shift => {
+            const docRef = db.collection('shifts').doc();
+            batch.set(docRef, { ...shift, period, savedAt: new Date().toISOString() });
+          });
+          await batch.commit();
+        }
+        console.info('[API Shift Generate] Firestore save complete.');
+      } catch (firestoreErr) {
+        console.error('[API Shift Generate] Firestore save failed (non-fatal):', firestoreErr);
       }
 
-      // 入出力パスをコマンドライン引数として渡す
-      const pythonArgs = [
-        pythonScriptPath,
-        '--input',  tmpSampleDataPath,
-        '--output', tmpOutputPath
-      ];
-
-      // 一時ファイルのクリーンアップヘルパー
-      function cleanupTmpFiles() {
-        [tmpSampleDataPath, tmpOutputPath].forEach(p => {
-          try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch (_) {}
-        });
-      }
-
-      return new Promise((resolve) => {
-        const proc = spawn(pythonBin, pythonArgs, { cwd: rootDir });
-
-        let stdoutBuf = '';
-        let stderrBuf = '';
-        proc.stdout.on('data', d => { stdoutBuf += d.toString(); });
-        proc.stderr.on('data', d => { stderrBuf += d.toString(); });
-
-        proc.on('close', async (code) => {
-          console.info('[API Shift Generate] Python stdout:\n', stdoutBuf);
-          if (stderrBuf) console.warn('[API Shift Generate] Python stderr:\n', stderrBuf);
-
-          if (code !== 0) {
-            console.error(`[API Shift Generate] Python process exited with code ${code}`);
-            cleanupTmpFiles();
-            res.status(500).send(`シフト自動作成に失敗しました(Solver Error): exit code ${code}\n${stderrBuf}`);
-            return resolve();
-          }
-
-          try {
-            if (!fs.existsSync(tmpOutputPath)) {
-              throw new Error(`${tmpOutputPath} が生成されませんでした。`);
-            }
-
-            const rawShifts = fs.readFileSync(tmpOutputPath, 'utf8');
-            const shifts = JSON.parse(rawShifts);
-
-            // -------------------------------------------------------
-            // Firestore `shifts` コレクションへ保存
-            // -------------------------------------------------------
-            try {
-              console.info(`[API Shift Generate] Saving ${shifts.length} shifts to Firestore (period: ${period})...`);
-
-              // 既存の同期間シフトを一括削除してから再書き込み
-              const existingSnap = await db.collection('shifts').where('period', '==', period).get();
-              const deletePromises = [];
-              existingSnap.forEach(doc => deletePromises.push(doc.ref.delete()));
-              await Promise.all(deletePromises);
-
-              // バッチ書き込み（Firestore は1バッチ最大500件）
-              const BATCH_SIZE = 400;
-              for (let i = 0; i < shifts.length; i += BATCH_SIZE) {
-                const batch = db.batch();
-                shifts.slice(i, i + BATCH_SIZE).forEach(shift => {
-                  const docRef = db.collection('shifts').doc();
-                  batch.set(docRef, {
-                    ...shift,
-                    period,
-                    savedAt: new Date().toISOString()
-                  });
-                });
-                await batch.commit();
-              }
-              console.info(`[API Shift Generate] Firestore save complete.`);
-            } catch (firestoreErr) {
-              // Firestore 保存失敗はログに残すが、クライアントには成功を返す
-              // （生成データ自体は正常なため、致命的エラーとしない）
-              console.error('[API Shift Generate] Firestore save failed (non-fatal):', firestoreErr);
-            }
-
-            cleanupTmpFiles();
-
-            console.info(`[API Shift Generate] Successfully generated ${shifts.length} shift assignments for period ${period}!`);
-            res.status(200).json({
-              message: 'AIシフト自動作成に成功しました。',
-              count: shifts.length,
-              shifts
-            });
-            resolve();
-          } catch (err) {
-            cleanupTmpFiles();
-            console.error('[API Shift Generate] Output read failed:', err);
-            res.status(500).send(`シフト結果の読み込みに失敗しました: ${err.message}`);
-            resolve();
-          }
-        });
-
-        proc.on('error', (err) => {
-          cleanupTmpFiles();
-          console.error('[API Shift Generate] Failed to start Python process:', err);
-          res.status(500).send(`Pythonプロセスの起動に失敗しました: ${err.message}`);
-          resolve();
-        });
+      console.info(`[API Shift Generate] Successfully generated ${shifts.length} shift assignments for period ${period}!`);
+      return res.status(200).json({
+        message: 'AIシフト自動作成に成功しました。',
+        count: shifts.length,
+        shifts
       });
 
     } catch (err) {
