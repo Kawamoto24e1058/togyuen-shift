@@ -499,6 +499,9 @@
     }
   }
 
+  /**
+   * @param {Member} member
+   */
   function handleQuickLoginSelect(member) {
     selectedQuickLoginMember = selectedQuickLoginMember?.id === member.id ? null : member;
     quickLoginPasscode = ""; // 入力をクリア
@@ -2613,7 +2616,7 @@
                         <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">YOUR SHIFT</div>
                         <div class="text-xl font-black text-slate-800 tracking-tight">
                           {#if mySelectedShift}
-                            {mySelectedShift.start_time || '10:00'} - {mySelectedShift.end_time || '18:00'}
+                            {mySelectedShift.start_time || '17:00'}〜
                           {:else}
                             お休み
                           {/if}
@@ -2683,7 +2686,7 @@
                                 {/if}
                               </div>
                               <div class="text-[10px] text-slate-400 font-medium">
-                                {#if s.role === 'kitchen'}🍳キッチン{:else}🛎ホール{/if} / {s.start_time || '10:00'} - {s.end_time || '22:00'}
+                                {#if s.role === 'kitchen'}🍳キッチン{:else}🛎ホール{/if} / {s.start_time || '17:00'}〜
                               </div>
                             </div>
                           </div>
@@ -3161,7 +3164,7 @@
                         <div>
                           <p class="text-xs font-bold text-slate-800">{s.member_name}</p>
                           <p class="text-[10px] text-slate-400 font-semibold mt-0.5">
-                            {#if s.role === 'kitchen'}🍳厨房{:else}🛎ホール{/if} • {s.start_time || '10:00'} - {s.end_time || '18:00'}
+                            {#if s.role === 'kitchen'}🍳厨房{:else}🛎ホール{/if} • {s.start_time || '17:00'}〜
                           </p>
                         </div>
                       </div>
