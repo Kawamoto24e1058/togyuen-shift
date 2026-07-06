@@ -2225,103 +2225,116 @@
   <!-- メインコンテンツ -->
   <main class="max-w-7xl mx-auto px-6 mt-8">
     {#if !currentUser}
-      <!-- モバイル最新版 プレミアムデザインログイン (Bento Grid 統合) -->
-      <div class="w-full max-w-[1000px] mx-auto py-8 animate-popup" in:fade={{ duration: 250 }}>
-        <!-- Welcome Hero -->
-        <div class="text-center mb-10">
-          <h2 class="text-3xl font-extrabold text-slate-800 tracking-tight mb-2">スタッフポータルへようこそ</h2>
-          <p class="text-sm text-slate-500 font-medium">桃牛苑の業務をよりスムーズに、よりシンプルに。</p>
-        </div>
+      <!-- Google Stitch デザイン完全刷新 ログイン/新規登録ポータル -->
+      <div class="w-full max-w-[1200px] mx-auto py-8 animate-popup" in:fade={{ duration: 250 }}>
+        <!-- Welcome Hero & Feature Bento Grid -->
+        <section class="w-full mb-12">
+          <div class="text-center mb-8">
+            <h2 class="text-2xl md:text-3xl font-black text-slate-800 tracking-tight mb-2">スタッフポータルへようこそ</h2>
+            <p class="text-sm md:text-base text-slate-500 font-medium">桃牛苑の業務をよりスムーズに、よりシンプルに。</p>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <!-- Feature 1 -->
+            <div class="bg-white p-6 rounded-[20px] shadow-sm border border-slate-100/80 flex flex-col items-start gap-4">
+              <div class="w-12 h-12 rounded-xl bg-[#005bc1]/10 text-[#005bc1] flex items-center justify-center">
+                <span class="material-symbols-outlined">calendar_month</span>
+              </div>
+              <div>
+                <h3 class="text-base font-bold text-slate-800 mb-1">シフト確認</h3>
+                <p class="text-xs text-slate-500 leading-relaxed">リアルタイムで自分のスケジュールをチェック。店舗の状況も一目で把握できます。</p>
+              </div>
+            </div>
+            <!-- Feature 2 -->
+            <div class="bg-white p-6 rounded-[20px] shadow-sm border border-slate-100/80 flex flex-col items-start gap-4">
+              <div class="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                <span class="material-symbols-outlined">send</span>
+              </div>
+              <div>
+                <h3 class="text-base font-bold text-slate-800 mb-1">希望提出</h3>
+                <p class="text-xs text-slate-500 leading-relaxed">休暇や希望シフトの提出もアプリから。調整結果もすぐにプッシュ通知で届きます。</p>
+              </div>
+            </div>
+            <!-- Feature 3 -->
+            <div class="bg-white p-6 rounded-[20px] shadow-sm border border-slate-100/80 flex flex-col items-start gap-4">
+              <div class="w-12 h-12 rounded-xl bg-red-50 text-red-500 flex items-center justify-center">
+                <span class="material-symbols-outlined">notifications_active</span>
+              </div>
+              <div>
+                <h3 class="text-base font-bold text-slate-800 mb-1">重要なお知らせ</h3>
+                <p class="text-xs text-slate-500 leading-relaxed">店舗からの緊急連絡や、マニュアルの更新などを逃さずキャッチアップ。</p>
+              </div>
+            </div>
+          </div>
+        </section>
 
-        <!-- Bento Grid -->
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-          <!-- Feature 1 -->
-          <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-start gap-4">
-            <div class="w-12 h-12 rounded-2xl bg-[#005bc1]/10 text-[#005bc1] flex items-center justify-center">
-              <span class="material-symbols-outlined">calendar_month</span>
-            </div>
-            <div>
-              <h3 class="text-base font-bold text-slate-800 mb-1">シフト確認</h3>
-              <p class="text-xs text-slate-500 leading-relaxed">リアルタイムで自分のスケジュールをチェック。店舗の状況も一目で把握できます。</p>
-            </div>
-          </div>
-          <!-- Feature 2 -->
-          <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-start gap-4">
-            <div class="w-12 h-12 rounded-2xl bg-[#008733]/10 text-[#008733] flex items-center justify-center">
-              <span class="material-symbols-outlined">send</span>
-            </div>
-            <div>
-              <h3 class="text-base font-bold text-slate-800 mb-1">希望提出</h3>
-              <p class="text-xs text-slate-500 leading-relaxed">休暇や希望シフトの提出もアプリから。調整結果もすぐにプッシュ通知で届きます。</p>
-            </div>
-          </div>
-          <!-- Feature 3 -->
-          <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col items-start gap-4">
-            <div class="w-12 h-12 rounded-2xl bg-[#ba1a1a]/10 text-[#ba1a1a] flex items-center justify-center">
-              <span class="material-symbols-outlined">notifications_active</span>
-            </div>
-            <div>
-              <h3 class="text-base font-bold text-slate-800 mb-1">重要なお知らせ</h3>
-              <p class="text-xs text-slate-500 leading-relaxed">店舗からの緊急連絡や、マニュアルの更新などを逃さずキャッチアップ。</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- Auth Card Container -->
-        <div class="w-full max-w-md mx-auto bg-white rounded-3xl shadow-lg border border-slate-100 overflow-hidden">
-          <!-- Segmented Tab Control -->
+        <!-- Auth Section -->
+        <section class="w-full max-w-md mx-auto bg-white rounded-[20px] shadow-md border border-slate-100 overflow-hidden">
+          <!-- Tabs -->
           <div class="flex p-1.5 bg-slate-100 m-5 rounded-2xl">
             <button
               type="button"
-              on:click={() => (loginScreenMode = "login")}
-              class="flex-grow py-2.5 rounded-xl text-xs font-bold transition-all border-0 cursor-pointer {loginScreenMode === 'login' ? 'bg-white text-[#005bc1] shadow-sm' : 'bg-transparent text-slate-500 hover:text-slate-800'}"
+              on:click={() => {
+                loginScreenMode = "login";
+                selectedQuickLoginMember = null;
+                quickLoginPasscode = "";
+              }}
+              class="flex-grow py-3 px-6 rounded-xl font-bold text-xs transition-all border-0 cursor-pointer {loginScreenMode === 'login' ? 'bg-white text-[#005bc1] shadow-sm' : 'bg-transparent text-slate-500 hover:text-slate-800'}"
             >
               スタッフログイン
             </button>
             <button
               type="button"
-              on:click={() => (loginScreenMode = "register")}
-              class="flex-grow py-2.5 rounded-xl text-xs font-bold transition-all border-0 cursor-pointer {loginScreenMode === 'register' ? 'bg-white text-[#005bc1] shadow-sm' : 'bg-transparent text-slate-500 hover:text-slate-800'}"
+              on:click={() => {
+                loginScreenMode = "register";
+              }}
+              class="flex-grow py-3 px-6 rounded-xl font-bold text-xs transition-all border-0 cursor-pointer {loginScreenMode === 'register' ? 'bg-white text-[#005bc1] shadow-sm' : 'bg-transparent text-slate-500 hover:text-slate-800'}"
             >
               新規登録
             </button>
           </div>
 
-          <!-- Form View -->
-          {#if loginScreenMode === 'login'}
-            <!-- Login Content -->
+          <!-- Login Content -->
+          {#if loginScreenMode === "login"}
             <div class="px-6 pb-8 space-y-6" in:fade={{ duration: 150 }}>
               <div>
-                <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">クイックログイン</p>
+                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">クイックログイン</p>
                 <div class="flex flex-col gap-3 max-h-64 overflow-y-auto hide-scrollbar p-1">
                   {#each members.filter(m => m.isActive !== false) as m}
-                    <div class="flex flex-col bg-slate-50 border border-slate-200/60 rounded-2xl overflow-hidden transition-all duration-200">
+                    {@const isKitchen = m.roles?.includes('kitchen')}
+                    {@const isTrainee = m.status === 'trainee'}
+                    <div class="flex flex-col bg-slate-50 border border-slate-200/50 rounded-xl overflow-hidden transition-all duration-200 hover:border-[#005bc1]/50">
                       <button
                         type="button"
                         on:click={() => handleQuickLoginSelect(m)}
                         class="w-full flex items-center justify-between p-4 text-left cursor-pointer transition-all border-0 bg-transparent"
                       >
-                        <div class="flex items-center gap-3 min-w-0">
-                          <div class="w-10 h-10 rounded-xl bg-[#005bc1]/10 flex items-center justify-center text-sm font-extrabold text-[#005bc1] shrink-0 border border-solid border-[#005bc1]/5 select-none">
-                            {m.initialChar || m.name.charAt(0)}
+                        <div class="flex items-center gap-3">
+                          <div class="w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm
+                            {isKitchen ? 'bg-[#005bc1]/10 text-[#005bc1]' : 'bg-emerald-50 text-emerald-600'}">
+                            <span>{m.initialChar || m.name.charAt(0)}</span>
                           </div>
-                          <div class="truncate">
-                            <p class="text-sm font-bold text-slate-800 truncate leading-tight">{m.name} {m.emoji || ''}</p>
-                            <p class="text-[11px] text-slate-500 mt-1">
-                              {#if m.roles?.includes('kitchen') && m.roles?.includes('hall')}
-                                🍳厨房 / 🛎ホール
-                              {:else if m.roles?.includes('kitchen')}
-                                🍳キッチン
-                              {:else}
-                                🛎ホール
+                          <div>
+                            <p class="font-bold text-xs text-slate-800 flex items-center gap-1.5">
+                              {m.name}
+                              {#if isTrainee}
+                                <span class="bg-amber-100 text-amber-800 text-[8px] px-1 rounded font-black">🔰</span>
                               {/if}
-                              {#if m.status === 'trainee'}
-                                ・ 🔰研修中
+                            </p>
+                            <p class="text-[10px] text-slate-400 font-medium mt-0.5">
+                              {#if m.roles?.includes('kitchen') && m.roles?.includes('hall')}
+                                キッチン / ホール
+                              {:else if m.roles?.includes('kitchen')}
+                                キッチン
+                              {:else}
+                                ホール
+                              {/if}
+                              {#if m.isAdmin}
+                                (管理者)
                               {/if}
                             </p>
                           </div>
                         </div>
-                        <span class="material-symbols-outlined text-slate-400 text-base transition-transform duration-200 {selectedQuickLoginMember?.id === m.id ? 'rotate-90' : ''}" style="font-size: 18px;">arrow_forward_ios</span>
+                        <span class="material-symbols-outlined text-slate-400 text-xs transition-transform duration-200 {selectedQuickLoginMember?.id === m.id ? 'rotate-90' : ''}">arrow_forward_ios</span>
                       </button>
 
                       <!-- インライン・パスコード入力欄 (アコーディオン展開) -->
@@ -2353,33 +2366,32 @@
                         </div>
                       {/if}
                     </div>
-                  {/each}
-                  {#if members.filter(m => m.isActive !== false).length === 0}
+                  {:else}
                     <p class="text-xs text-slate-400 text-center py-8">
                       登録済みのスタッフはいません。<br />「新規登録」を選択して登録してください。
                     </p>
-                  {/if}
+                  {/each}
                 </div>
               </div>
 
-              <div class="relative flex items-center gap-4 py-2">
+              <div class="relative flex items-center gap-4">
                 <div class="flex-grow border-t border-slate-200"></div>
                 <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">または IDでログイン</span>
                 <div class="flex-grow border-t border-slate-200"></div>
               </div>
 
               <div class="space-y-4">
-                <div class="flex flex-col gap-1.5">
+                <div class="space-y-1 flex flex-col">
                   <label for="login-staff-id" class="text-xs font-bold text-slate-700 ml-1">スタッフID</label>
                   <input
                     id="login-staff-id"
                     type="text"
                     bind:value={loginStaffIdInput}
                     placeholder="TN-00000"
-                    class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#005bc1]/20 focus:border-[#005bc1] text-sm text-slate-800 outline-none transition-all"
+                    class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#005bc1]/20 focus:border-[#005bc1] text-xs text-slate-800 outline-none transition-all"
                   />
                 </div>
-                <div class="flex flex-col gap-1.5">
+                <div class="space-y-1 flex flex-col">
                   <label for="login-password" class="text-xs font-bold text-slate-700 ml-1">パスワード（暗証番号）</label>
                   <input
                     id="login-password"
@@ -2389,52 +2401,52 @@
                     maxlength="4"
                     bind:value={loginPasswordInput}
                     placeholder="••••"
-                    class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#005bc1]/20 focus:border-[#005bc1] text-sm text-slate-800 outline-none transition-all"
+                    class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#005bc1]/20 focus:border-[#005bc1] text-xs text-slate-800 outline-none transition-all"
                     on:keydown={(e) => e.key === 'Enter' && handleIdLogin()}
                   />
                 </div>
                 <button
                   type="button"
                   on:click={handleIdLogin}
-                  class="w-full py-4 bg-[#005bc1] text-white rounded-xl font-bold text-sm hover:opacity-90 active:scale-[0.99] transition-all border-0 cursor-pointer flex items-center justify-center"
+                  class="w-full h-[50px] mt-4 bg-[#0058bc] text-white rounded-xl font-bold hover:opacity-90 active:scale-95 transition-all border-0 cursor-pointer"
                 >
                   ログイン
                 </button>
               </div>
             </div>
-          {:else}
-            <!-- Register Content -->
-            <div class="p-6 space-y-5" in:fade={{ duration: 150 }}>
-              <div class="p-4 bg-[#005bc1]/10 rounded-2xl flex gap-3 items-start border border-[#005bc1]/5">
-                <span class="material-symbols-outlined text-[#005bc1]" style="font-size: 20px;">info</span>
-                <p class="text-xs text-[#005bc1] leading-relaxed font-semibold">
-                  新規登録には、店舗管理者が発行した「招待コード」（佐藤・鈴木用 8929 / 一般スタッフ用 8888）が必要です。
-                </p>
-              </div>
+          {/if}
 
-              <div class="flex flex-col gap-1.5">
+          <!-- Register Content -->
+          {#if loginScreenMode === "register"}
+            <div class="px-6 pb-8 space-y-4 mt-2" in:fade={{ duration: 150 }}>
+              <div class="p-4 bg-[#005bc1]/5 rounded-xl flex gap-3 items-start border border-[#005bc1]/10">
+                <span class="material-symbols-outlined text-[#005bc1]" style="font-size: 20px;">info</span>
+                <p class="text-[13px] text-slate-600 leading-snug">新規登録には、店舗管理者が発行した「招待コード」（佐藤・鈴木用 8929 / 一般スタッフ用 8888）が必要です。</p>
+              </div>
+              
+              <div class="space-y-1 flex flex-col">
                 <label for="reg-invite-code" class="text-xs font-bold text-slate-700 ml-1">招待コード</label>
                 <input
                   id="reg-invite-code"
                   type="text"
                   bind:value={regInviteCode}
                   placeholder="XXXX-XXXX"
-                  class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#005bc1]/20 focus:border-[#005bc1] text-center tracking-widest font-bold text-sm text-slate-800 outline-none transition-all"
+                  class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#005bc1]/20 focus:border-[#005bc1] text-center tracking-widest font-bold text-xs text-slate-800 outline-none transition-all"
                 />
               </div>
 
-              <div class="flex flex-col gap-1.5">
+              <div class="space-y-1 flex flex-col">
                 <label for="reg-invite-name" class="text-xs font-bold text-slate-700 ml-1">お名前</label>
                 <input
                   id="reg-invite-name"
                   type="text"
                   bind:value={regInviteName}
                   placeholder="例：桃牛 太郎"
-                  class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#005bc1]/20 focus:border-[#005bc1] text-sm text-slate-800 outline-none transition-all"
+                  class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#005bc1]/20 focus:border-[#005bc1] text-xs text-slate-800 outline-none transition-all"
                 />
               </div>
 
-              <!-- 利便性のための追加オプション (役割トグル) -->
+              <!-- 役割選択 & 研修生フラグ (登録に必須) -->
               <div class="flex flex-col gap-1.5 pt-2">
                 <span class="text-xs font-bold text-slate-700 ml-1">担当タグ (役割)</span>
                 <div class="flex gap-2">
@@ -2447,7 +2459,8 @@
                         regRoles = [...regRoles, "kitchen"];
                       }
                     }}
-                    class="flex-1 py-3 px-4 border rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer {regRoles.includes('kitchen') ? 'bg-[#005bc1]/10 border-[#005bc1] text-[#005bc1]' : 'bg-slate-50 border-slate-200 text-slate-500'}"
+                    class="flex-1 py-3 px-4 border rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer border-solid
+                    {regRoles.includes('kitchen') ? 'bg-[#005bc1]/10 border-[#005bc1] text-[#005bc1]' : 'bg-slate-50 border-slate-200 text-slate-500'}"
                   >
                     <span>🍳</span> キッチン
                   </button>
@@ -2460,7 +2473,8 @@
                         regRoles = [...regRoles, "hall"];
                       }
                     }}
-                    class="flex-1 py-3 px-4 border rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer {regRoles.includes('hall') ? 'bg-[#005bc1]/10 border-[#005bc1] text-[#005bc1]' : 'bg-slate-50 border-slate-200 text-slate-500'}"
+                    class="flex-1 py-3 px-4 border rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer border-solid
+                    {regRoles.includes('hall') ? 'bg-[#005bc1]/10 border-[#005bc1] text-[#005bc1]' : 'bg-slate-50 border-slate-200 text-slate-500'}"
                   >
                     <span>🛎</span> ホール
                   </button>
@@ -2468,11 +2482,11 @@
               </div>
 
               <!-- 研修生トグル -->
-              <div class="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-xl p-4 mt-1">
+              <div class="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-xl p-4 mt-1 border-solid">
                 <span class="text-xs font-bold text-slate-700">研修中（トレーニング中）</span>
                 <label class="relative inline-flex items-center cursor-pointer">
                   <input type="checkbox" bind:checked={regIsTrainee} class="sr-only peer" />
-                  <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:height-4 after:h-4 after:w-4 after:transition-all peer-checked:bg-[#005bc1]"></div>
+                  <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#005bc1] border-0"></div>
                 </label>
               </div>
 
@@ -2480,10 +2494,10 @@
                 type="button"
                 on:click={handleInviteRegister}
                 disabled={isRegistering}
-                class="w-full py-4 bg-[#005bc1] text-white rounded-xl font-bold text-sm hover:opacity-90 active:scale-[0.99] transition-all border-0 cursor-pointer flex items-center justify-center gap-2 mt-4"
+                class="w-full h-[50px] mt-4 bg-[#0058bc] text-white rounded-xl font-bold hover:opacity-90 active:scale-95 transition-all border-0 cursor-pointer flex items-center justify-center gap-2"
               >
                 {#if isRegistering}
-                  <span class="material-symbols-outlined animate-spin">progress_activity</span>
+                  <span class="material-symbols-outlined animate-spin text-sm">progress_activity</span>
                   <span>登録処理中...</span>
                 {:else}
                   <span>アカウント作成を開始</span>
@@ -2491,7 +2505,7 @@
               </button>
             </div>
           {/if}
-        </div>
+        </section>
       </div>
     {:else}
       <!-- ========================================================================= -->
@@ -3377,6 +3391,16 @@
       {/if}
     {/if}
   </main>
+
+  <!-- Footer (Google Stitch デザイン完全統合) -->
+  <footer class="w-full py-8 border-t border-slate-200/50 flex flex-col items-center gap-4 bg-slate-50 mt-auto">
+    <div class="flex gap-6">
+      <a class="font-bold text-xs text-slate-500 hover:text-[#0058bc] transition-colors no-underline" href="#/">利用規約</a>
+      <a class="font-bold text-xs text-slate-500 hover:text-[#0058bc] transition-colors no-underline" href="#/">プライバシーポリシー</a>
+      <a class="font-bold text-xs text-slate-500 hover:text-[#0058bc] transition-colors no-underline" href="#/">ヘルプ</a>
+    </div>
+    <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">© 2024 桃牛苑 Operations Inc.</p>
+  </footer>
 
   <!-- モーダル: 曜日一括設定 -->
   {#if selectedBulkClosedDay}
