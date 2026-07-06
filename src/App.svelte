@@ -472,10 +472,16 @@
 
   // 選択日におけるアサインシフト一覧
   $: selectedDayShifts = shifts.filter(s => s.date === selectedCalendarDate);
-  $: mySelectedShift = currentUser ? selectedDayShifts.find(s => s.member_id === currentUser.id) : null;
-  $: coworkersSelectedShifts = currentUser 
-    ? selectedDayShifts.filter(s => s.member_id !== currentUser.id)
-    : selectedDayShifts;
+  $: mySelectedShift = (() => {
+    if (!currentUser) return null;
+    const currentUserId = currentUser.id;
+    return selectedDayShifts.find(s => s.member_id === currentUserId);
+  })();
+  $: coworkersSelectedShifts = (() => {
+    if (!currentUser) return selectedDayShifts;
+    const currentUserId = currentUser.id;
+    return selectedDayShifts.filter(s => s.member_id !== currentUserId);
+  })();
 
   function handlePrevPeriod() {
     const idx = selectablePeriods.findIndex(p => p.value === currentPeriod);
@@ -491,6 +497,11 @@
       currentPeriod = selectablePeriods[idx + 1].value;
       selectedCalendarDate = "";
     }
+  }
+
+  function handleQuickLoginSelect(member) {
+    selectedQuickLoginMember = selectedQuickLoginMember?.id === member.id ? null : member;
+    quickLoginPasscode = ""; // 入力をクリア
   }
 
   // 管理者設定ダッシュボード用（動的充足率 ＆ 警告アラート）
@@ -2602,7 +2613,7 @@
                         <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">YOUR SHIFT</div>
                         <div class="text-xl font-black text-slate-800 tracking-tight">
                           {#if mySelectedShift}
-                            {mySelectedShift.time_start || '10:00'} - {mySelectedShift.time_end || '18:00'}
+                            {mySelectedShift.start_time || '10:00'} - {mySelectedShift.end_time || '18:00'}
                           {:else}
                             お休み
                           {/if}
@@ -2672,7 +2683,7 @@
                                 {/if}
                               </div>
                               <div class="text-[10px] text-slate-400 font-medium">
-                                {#if s.role === 'kitchen'}🍳キッチン{:else}🛎ホール{/if} / {s.time_start || '10:00'} - {s.time_end || '22:00'}
+                                {#if s.role === 'kitchen'}🍳キッチン{:else}🛎ホール{/if} / {s.start_time || '10:00'} - {s.end_time || '22:00'}
                               </div>
                             </div>
                           </div>
@@ -2716,11 +2727,11 @@
           <section class="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
             <div>
               <h2 class="text-2xl font-black text-slate-800 tracking-tight">希望提出</h2>
-              <p class="text-slate-500 text-xs mt-1 font-medium">対象期間：{currentPeriodText || ''}</p>
+              <p class="text-slate-500 text-xs mt-1 font-medium">対象期間：{currentPeriodLabel || ''}</p>
             </div>
             <div class="flex items-center gap-3">
               <div class="bg-[#0058bc]/10 text-[#0058bc] px-3.5 py-1.5 rounded-full text-xs font-bold">
-                {currentPeriodHalfText || '後半'}
+                {currentPeriod.endsWith("-A") ? "前半" : currentPeriod.endsWith("-B") ? "後半" : "月間"}
               </div>
               <div class="flex items-center gap-1.5 bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-full text-xs font-bold text-slate-700">
                 <span>{currentUser?.avatar || "🧑‍🍳"}</span>
@@ -3150,7 +3161,7 @@
                         <div>
                           <p class="text-xs font-bold text-slate-800">{s.member_name}</p>
                           <p class="text-[10px] text-slate-400 font-semibold mt-0.5">
-                            {#if s.role === 'kitchen'}🍳厨房{:else}🛎ホール{/if} • {s.time_start || '10:00'} - {s.time_end || '18:00'}
+                            {#if s.role === 'kitchen'}🍳厨房{:else}🛎ホール{/if} • {s.start_time || '10:00'} - {s.end_time || '18:00'}
                           </p>
                         </div>
                       </div>
