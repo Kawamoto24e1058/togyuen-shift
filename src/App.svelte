@@ -432,6 +432,18 @@
   let loginScreenMode = "login"; // 'register' | 'login'
   let regPasscode = "";
 
+  // 新規追加: 招待コード・IDログイン用
+  let loginStaffIdInput = "";
+  let loginPasswordInput = "";
+  let regInviteCode = "";
+  let regInviteName = "";
+
+
+  // クイックログイン用
+  /** @type {Member | null} */
+  let selectedQuickLoginMember = null;
+  let quickLoginPasscode = "";
+
   $: if (members && members.filter(m => m.isActive !== false).length === 0) {
     loginScreenMode = "register";
   }
@@ -465,6 +477,166 @@
     requestPushSubscription(registeredUser.id).catch(console.error);
 
     loginPasscode = "";
+  }
+
+  // --- 新ログイン/登録処理ロジック (UXリファイン統合) ---
+  async function handleIdLogin() {
+    const idStr = loginStaffIdInput.trim();
+    const pass = loginPasswordInput.trim();
+
+    if (!idStr) {
+      triggerToast("⚠️ スタッフIDを入力してください。");
+      return;
+    }
+    if (!pass) {
+      triggerToast("⚠️ パスワード（暗証番号）を入力してください。");
+      return;
+    }
+
+    const match = idStr.match(/\d+/);
+    if (!match) {
+      triggerToast("⚠️ 正しいスタッフID（例: TN-00005）を入力してください。");
+      return;
+    }
+    const idNum = parseInt(match[0], 10);
+
+    const member = members.find(m => Number(m.id) === idNum && m.isActive !== false);
+    if (!member) {
+      triggerToast("⚠️ 該当するスタッフが見つかりません。");
+      return;
+    }
+
+    const isCorrect = member.passcode
+      ? pass === member.passcode
+      : (pass === "8929" || pass === "8888");
+
+    if (!isCorrect) {
+      triggerToast("⚠️ パスワードが正しくありません。");
+      return;
+    }
+
+    const registeredUser = {
+      ...member,
+      avatar: member.emoji || (member.roles?.includes("kitchen") ? "👨‍🍳" : "👩‍💼"),
+      isAdmin: !!member.isAdmin,
+    };
+    currentUser = registeredUser;
+
+    localStorage.setItem("currentUser", JSON.stringify(registeredUser));
+    triggerToast(`💚 ログインしました！おかえりなさい、${registeredUser.name}さん。`);
+
+    selectedStaffId = registeredUser.id;
+    await loadStaffSubmissions(registeredUser.id);
+    requestPushSubscription(registeredUser.id).catch(console.error);
+
+    loginStaffIdInput = "";
+    loginPasswordInput = "";
+  }
+
+  async function handleInviteRegister() {
+    const code = regInviteCode.trim();
+    const name = regInviteName.trim();
+
+    if (!code) {
+      triggerToast("⚠️ 招待コードを入力してください。");
+      return;
+    }
+    if (!name) {
+      triggerToast("⚠️ お名前を入力してください。");
+      return;
+    }
+
+    if (code !== "8929" && code !== "8888") {
+      triggerToast("⚠️ 招待コードが正しくありません。店舗管理者に確認してください。");
+      return;
+    }
+
+    isRegistering = true;
+    try {
+      // 招待コード登録時は、デフォルトで「ホール」ロール、ステータスは「regular」、初期パスコードは "8888" とする
+      const res = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: name,
+          initialChar: name.substring(0, 1),
+          roles: regRoles && regRoles.length ? regRoles : ["hall"],
+          status: regIsTrainee ? "trainee" : "regular",
+          passcode: "8888" // デフォルト初期値
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+
+      const data = await res.json();
+      if (data.registered) {
+        const registeredUser = {
+          ...data.user,
+          avatar: regRoles && regRoles.includes("kitchen") ? "👨‍🍳" : "👩‍💼",
+          isAdmin: !!data.user.isAdmin,
+        };
+        currentUser = registeredUser;
+
+        localStorage.setItem("currentUser", JSON.stringify(registeredUser));
+        triggerToast(
+          `💚 登録が完了しました！${registeredUser.name}さん、歓迎します。スタッフID: TN-${String(registeredUser.id).padStart(5, '0')}`,
+        );
+
+        regInviteCode = "";
+        regInviteName = "";
+        regRoles = [];
+        regIsTrainee = false;
+
+        await fetchMembers();
+        selectedStaffId = registeredUser.id;
+        await loadStaffSubmissions(registeredUser.id);
+        requestPushSubscription(registeredUser.id).catch(console.error);
+      }
+    } catch (error) {
+      const err = /** @type {any} */ (error);
+      console.error(err);
+      triggerToast(`⚠️ 登録エラー: ${err.message}`);
+    } finally {
+      isRegistering = false;
+    }
+  }
+
+  async function handleQuickLoginSubmit() {
+    if (!selectedQuickLoginMember) return;
+    const code = quickLoginPasscode.trim();
+
+    if (!code) {
+      triggerToast("⚠️ パスコードを入力してください。");
+      return;
+    }
+
+    const isCorrect = selectedQuickLoginMember.passcode
+      ? code === selectedQuickLoginMember.passcode
+      : (code === "8929" || code === "8888");
+
+    if (!isCorrect) {
+      triggerToast("⚠️ パスコードが正しくありません。");
+      return;
+    }
+
+    const registeredUser = {
+      ...selectedQuickLoginMember,
+      avatar: selectedQuickLoginMember.emoji || (selectedQuickLoginMember.roles?.includes("kitchen") ? "👨‍🍳" : "👩‍💼"),
+      isAdmin: !!selectedQuickLoginMember.isAdmin,
+    };
+    currentUser = registeredUser;
+
+    localStorage.setItem("currentUser", JSON.stringify(registeredUser));
+    triggerToast(`💚 ログインしました！おかえりなさい、${registeredUser.name}さん。`);
+
+    selectedStaffId = registeredUser.id;
+    await loadStaffSubmissions(registeredUser.id);
+    requestPushSubscription(registeredUser.id).catch(console.error);
+
+    selectedQuickLoginMember = null;
+    quickLoginPasscode = "";
   }
 
   /**
@@ -2036,39 +2208,154 @@
           </div>
 
           <!-- Form View -->
-          {#if loginScreenMode === 'register'}
-            <!-- Path A: Profile Registration Form -->
-            <div class="p-6 space-y-5" in:fade={{ duration: 150 }}>
-              <!-- Name Input -->
-              <div class="flex flex-col gap-1.5">
-                <label for="reg-name" class="text-xs font-bold text-slate-700 ml-1">お名前 (氏名)</label>
-                <input
-                  id="reg-name"
-                  type="text"
-                  bind:value={regName}
-                  placeholder="桃牛 太郎"
-                  class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#005bc1]/20 focus:border-[#005bc1] text-sm text-slate-800 outline-none transition-all"
-                />
+          {#if loginScreenMode === 'login'}
+            <!-- Login Content -->
+            <div class="px-6 pb-8 space-y-6" in:fade={{ duration: 150 }}>
+              <div>
+                <p class="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">クイックログイン</p>
+                <div class="flex flex-col gap-3 max-h-64 overflow-y-auto hide-scrollbar p-1">
+                  {#each members.filter(m => m.isActive !== false) as m}
+                    <div class="flex flex-col bg-slate-50 border border-slate-200/60 rounded-2xl overflow-hidden transition-all duration-200">
+                      <button
+                        type="button"
+                        on:click={() => handleQuickLoginSelect(m)}
+                        class="w-full flex items-center justify-between p-4 text-left cursor-pointer transition-all border-0 bg-transparent"
+                      >
+                        <div class="flex items-center gap-3 min-w-0">
+                          <div class="w-10 h-10 rounded-xl bg-[#005bc1]/10 flex items-center justify-center text-sm font-extrabold text-[#005bc1] shrink-0 border border-solid border-[#005bc1]/5 select-none">
+                            {m.initialChar || m.name.charAt(0)}
+                          </div>
+                          <div class="truncate">
+                            <p class="text-sm font-bold text-slate-800 truncate leading-tight">{m.name} {m.emoji || ''}</p>
+                            <p class="text-[11px] text-slate-500 mt-1">
+                              {#if m.roles?.includes('kitchen') && m.roles?.includes('hall')}
+                                🍳厨房 / 🛎ホール
+                              {:else if m.roles?.includes('kitchen')}
+                                🍳キッチン
+                              {:else}
+                                🛎ホール
+                              {/if}
+                              {#if m.status === 'trainee'}
+                                ・ 🔰研修中
+                              {/if}
+                            </p>
+                          </div>
+                        </div>
+                        <span class="material-symbols-outlined text-slate-400 text-base transition-transform duration-200 {selectedQuickLoginMember?.id === m.id ? 'rotate-90' : ''}" style="font-size: 18px;">arrow_forward_ios</span>
+                      </button>
+
+                      <!-- インライン・パスコード入力欄 (アコーディオン展開) -->
+                      {#if selectedQuickLoginMember?.id === m.id}
+                        <div class="px-4 pb-4 border-t border-slate-100 bg-slate-50/50 space-y-3" in:fade={{ duration: 150 }}>
+                          <div class="flex flex-col gap-1 mt-2">
+                            <label for="quick-pass-{m.id}" class="text-[10px] font-bold text-slate-500 ml-1">パスコードを入力してください</label>
+                            <div class="flex gap-2">
+                              <input
+                                id="quick-pass-{m.id}"
+                                type="password"
+                                pattern="[0-9]*"
+                                inputmode="numeric"
+                                maxlength="4"
+                                bind:value={quickLoginPasscode}
+                                placeholder="••••"
+                                class="flex-grow px-3 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#005bc1]/20 focus:border-[#005bc1] text-center text-sm tracking-widest font-black text-slate-800 outline-none transition-all"
+                                on:keydown={(e) => e.key === 'Enter' && handleQuickLoginSubmit()}
+                              />
+                              <button
+                                type="button"
+                                on:click={handleQuickLoginSubmit}
+                                class="px-4 bg-[#005bc1] text-white rounded-xl font-bold text-xs hover:opacity-90 active:scale-[0.97] transition-all border-0 cursor-pointer"
+                              >
+                                送信
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      {/if}
+                    </div>
+                  {/each}
+                  {#if members.filter(m => m.isActive !== false).length === 0}
+                    <p class="text-xs text-slate-400 text-center py-8">
+                      登録済みのスタッフはいません。<br />「新規登録」を選択して登録してください。
+                    </p>
+                  {/if}
+                </div>
               </div>
 
-              <!-- Identity Char Input -->
-              <div class="flex flex-col gap-1.5">
-                <label for="reg-initial" class="text-xs font-bold text-slate-700 ml-1">識別用の一文字 (漢字/頭文字)</label>
-                <input
-                  id="reg-initial"
-                  type="text"
-                  maxlength="1"
-                  bind:value={regInitialChar}
-                  placeholder="桃"
-                  class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#005bc1]/20 focus:border-[#005bc1] text-sm text-slate-800 outline-none transition-all"
-                />
-                <p class="text-[10px] text-slate-400 font-medium ml-1">
-                  ※シフトカレンダー上の表示に使われます。空欄の場合はお名前の頭文字になります。
+              <div class="relative flex items-center gap-4 py-2">
+                <div class="flex-grow border-t border-slate-200"></div>
+                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">または IDでログイン</span>
+                <div class="flex-grow border-t border-slate-200"></div>
+              </div>
+
+              <div class="space-y-4">
+                <div class="flex flex-col gap-1.5">
+                  <label for="login-staff-id" class="text-xs font-bold text-slate-700 ml-1">スタッフID</label>
+                  <input
+                    id="login-staff-id"
+                    type="text"
+                    bind:value={loginStaffIdInput}
+                    placeholder="TN-00000"
+                    class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#005bc1]/20 focus:border-[#005bc1] text-sm text-slate-800 outline-none transition-all"
+                  />
+                </div>
+                <div class="flex flex-col gap-1.5">
+                  <label for="login-password" class="text-xs font-bold text-slate-700 ml-1">パスワード（暗証番号）</label>
+                  <input
+                    id="login-password"
+                    type="password"
+                    pattern="[0-9]*"
+                    inputmode="numeric"
+                    maxlength="4"
+                    bind:value={loginPasswordInput}
+                    placeholder="••••"
+                    class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#005bc1]/20 focus:border-[#005bc1] text-sm text-slate-800 outline-none transition-all"
+                    on:keydown={(e) => e.key === 'Enter' && handleIdLogin()}
+                  />
+                </div>
+                <button
+                  type="button"
+                  on:click={handleIdLogin}
+                  class="w-full py-4 bg-[#005bc1] text-white rounded-xl font-bold text-sm hover:opacity-90 active:scale-[0.99] transition-all border-0 cursor-pointer flex items-center justify-center"
+                >
+                  ログイン
+                </button>
+              </div>
+            </div>
+          {:else}
+            <!-- Register Content -->
+            <div class="p-6 space-y-5" in:fade={{ duration: 150 }}>
+              <div class="p-4 bg-[#005bc1]/10 rounded-2xl flex gap-3 items-start border border-[#005bc1]/5">
+                <span class="material-symbols-outlined text-[#005bc1]" style="font-size: 20px;">info</span>
+                <p class="text-xs text-[#005bc1] leading-relaxed font-semibold">
+                  新規登録には、店舗管理者が発行した「招待コード」（佐藤・鈴木用 8929 / 一般スタッフ用 8888）が必要です。
                 </p>
               </div>
 
-              <!-- Roles Selection -->
               <div class="flex flex-col gap-1.5">
+                <label for="reg-invite-code" class="text-xs font-bold text-slate-700 ml-1">招待コード</label>
+                <input
+                  id="reg-invite-code"
+                  type="text"
+                  bind:value={regInviteCode}
+                  placeholder="XXXX-XXXX"
+                  class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#005bc1]/20 focus:border-[#005bc1] text-center tracking-widest font-bold text-sm text-slate-800 outline-none transition-all"
+                />
+              </div>
+
+              <div class="flex flex-col gap-1.5">
+                <label for="reg-invite-name" class="text-xs font-bold text-slate-700 ml-1">お名前</label>
+                <input
+                  id="reg-invite-name"
+                  type="text"
+                  bind:value={regInviteName}
+                  placeholder="例：桃牛 太郎"
+                  class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#005bc1]/20 focus:border-[#005bc1] text-sm text-slate-800 outline-none transition-all"
+                />
+              </div>
+
+              <!-- 利便性のための追加オプション (役割トグル) -->
+              <div class="flex flex-col gap-1.5 pt-2">
                 <span class="text-xs font-bold text-slate-700 ml-1">担当タグ (役割)</span>
                 <div class="flex gap-2">
                   <button
@@ -2098,13 +2385,10 @@
                     <span>🛎</span> ホール
                   </button>
                 </div>
-                <p class="text-[10px] text-slate-400 font-medium ml-1">
-                  ※両方の職種に対応している場合は、両方とも選択できます。
-                </p>
               </div>
 
-              <!-- Status Selection -->
-              <div class="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-xl p-4">
+              <!-- 研修生トグル -->
+              <div class="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-xl p-4 mt-1">
                 <span class="text-xs font-bold text-slate-700">研修中（トレーニング中）</span>
                 <label class="relative inline-flex items-center cursor-pointer">
                   <input type="checkbox" bind:checked={regIsTrainee} class="sr-only peer" />
@@ -2112,102 +2396,19 @@
                 </label>
               </div>
 
-              <!-- Personal Passcode Selection -->
-              <div class="flex flex-col gap-1.5">
-                <label for="reg-passcode" class="text-xs font-bold text-slate-700 ml-1">ご自身のログイン用パスコード (数字4桁)</label>
-                <input
-                  id="reg-passcode"
-                  type="password"
-                  pattern="[0-9]*"
-                  inputmode="numeric"
-                  maxlength="4"
-                  bind:value={regPasscode}
-                  placeholder="••••"
-                  class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#005bc1]/20 focus:border-[#005bc1] text-center text-lg tracking-widest font-black text-slate-800 outline-none transition-all"
-                />
-                <p class="text-[10px] text-slate-400 font-medium ml-1">
-                  ※次回ログイン時に使用します。忘れないようにご注意ください。
-                </p>
-              </div>
-
-              <!-- Submit Button -->
-              <div class="pt-2">
-                <button
-                  type="button"
-                  on:click={handleRegisterProfile}
-                  disabled={isRegistering}
-                  class="w-full py-4 bg-[#005bc1] text-white rounded-xl font-bold text-sm hover:opacity-90 active:scale-[0.99] transition-all border-0 cursor-pointer flex items-center justify-center gap-2"
-                >
-                  {#if isRegistering}
-                    <span class="material-symbols-outlined animate-spin">progress_activity</span>
-                    <span>登録処理中...</span>
-                  {:else}
-                    <span>プロフィールを登録して開始する</span>
-                  {/if}
-                </button>
-              </div>
-            </div>
-          {:else}
-            <!-- Path B: Select Staff Login Form -->
-            <div class="p-6 space-y-5" in:fade={{ duration: 150 }}>
-              <!-- Passcode Input -->
-              <div class="flex flex-col gap-1.5">
-                <label for="login-passcode" class="text-xs font-bold text-slate-700 ml-1">お店共通のパスコード (数字4桁)</label>
-                <input
-                  id="login-passcode"
-                  type="password"
-                  pattern="[0-9]*"
-                  inputmode="numeric"
-                  maxlength="4"
-                  bind:value={loginPasscode}
-                  placeholder="••••"
-                  class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#005bc1]/20 focus:border-[#005bc1] text-center text-lg tracking-widest font-black text-slate-800 outline-none transition-all"
-                />
-                <p class="text-[10px] text-slate-400 font-medium mt-1 text-center">
-                  ※共通パスコード（8929 または 8888）を入力してください。
-                </p>
-              </div>
-
-              <!-- Scrollable Staff buttons grid (Quick Login Style) -->
-              <div class="flex flex-col gap-1.5">
-                <span class="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">クイックログイン</span>
-                <div class="space-y-3 max-h-[300px] overflow-y-auto pr-1">
-                  {#each members.filter(m => m.isActive !== false) as m}
-                    <button
-                      type="button"
-                      on:click={() => handleSelectStaffLogin(m)}
-                      class="w-full flex items-center justify-between bg-slate-50 border border-slate-200 hover:border-[#005bc1] hover:bg-slate-50/50 p-4 rounded-xl text-left cursor-pointer transition-all duration-200 active:scale-[0.99] border-solid"
-                    >
-                      <div class="flex items-center gap-3 min-w-0">
-                        <div class="w-10 h-10 rounded-xl bg-[#005bc1]/10 flex items-center justify-center text-sm font-extrabold text-[#005bc1] shrink-0 border border-solid border-[#005bc1]/5 select-none">
-                          {m.initialChar || m.name.charAt(0)}
-                        </div>
-                        <div class="truncate">
-                          <p class="text-sm font-bold text-slate-800 truncate leading-tight">{m.name} {m.emoji || ''}</p>
-                          <p class="text-[11px] text-slate-500 mt-1">
-                            {#if m.roles?.includes('kitchen') && m.roles?.includes('hall')}
-                              🍳厨房 / 🛎ホール
-                            {:else if m.roles?.includes('kitchen')}
-                              🍳キッチン
-                            {:else}
-                              🛎ホール
-                            {/if}
-                            {#if m.status === 'trainee'}
-                              ・ 🔰研修中
-                            {/if}
-                          </p>
-                        </div>
-                      </div>
-                      <span class="material-symbols-outlined text-slate-400 text-base" style="font-size: 18px;">arrow_forward_ios</span>
-                    </button>
-                  {/each}
-                  {#if members.filter(m => m.isActive !== false).length === 0}
-                    <p class="text-xs text-slate-400 text-center py-8">
-                      登録済みのスタッフはいません。<br />「新規登録」を選択して登録してください。
-                    </p>
-                  {/if}
-                </div>
-              </div>
+              <button
+                type="button"
+                on:click={handleInviteRegister}
+                disabled={isRegistering}
+                class="w-full py-4 bg-[#005bc1] text-white rounded-xl font-bold text-sm hover:opacity-90 active:scale-[0.99] transition-all border-0 cursor-pointer flex items-center justify-center gap-2 mt-4"
+              >
+                {#if isRegistering}
+                  <span class="material-symbols-outlined animate-spin">progress_activity</span>
+                  <span>登録処理中...</span>
+                {:else}
+                  <span>アカウント作成を開始</span>
+                {/if}
+              </button>
             </div>
           {/if}
         </div>
