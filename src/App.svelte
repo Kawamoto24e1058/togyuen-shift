@@ -444,6 +444,55 @@
   let selectedQuickLoginMember = null;
   let quickLoginPasscode = "";
 
+  // シフト表カレンダー用（モバイル特化UI統合）
+  let selectedCalendarDate = "";
+
+  // リアクティブに初期選択日を設定（今日、または最初の日付）
+  $: if (GRID_CELLS_MONTH && GRID_CELLS_MONTH.length > 0 && !selectedCalendarDate) {
+    const todayStr = new Date().toISOString().split('T')[0];
+    const hasToday = GRID_CELLS_MONTH.some(d => d.dateStr === todayStr && !d.isOtherMonth);
+    if (hasToday) {
+      selectedCalendarDate = todayStr;
+    } else {
+      const firstValid = GRID_CELLS_MONTH.find(d => !d.isOtherMonth);
+      if (firstValid) {
+        selectedCalendarDate = firstValid.dateStr;
+      }
+    }
+  }
+
+  // 選択された日付のパブリッシュ（公開）状況をリアクティブに判定
+  $: isSelectedDatePublished = (() => {
+    if (!selectedCalendarDate) return false;
+    const cellDayNum = Number(selectedCalendarDate.split("-")[2]);
+    const cellPeriodHalf = cellDayNum <= 15 ? 'A' : 'B';
+    const cellStatus = cellPeriodHalf === 'A' ? shiftStatusA : shiftStatusB;
+    return cellStatus === 'published';
+  })();
+
+  // 選択日におけるアサインシフト一覧
+  $: selectedDayShifts = shifts.filter(s => s.date === selectedCalendarDate);
+  $: mySelectedShift = currentUser ? selectedDayShifts.find(s => s.member_id === currentUser.id) : null;
+  $: coworkersSelectedShifts = currentUser 
+    ? selectedDayShifts.filter(s => s.member_id !== currentUser.id)
+    : selectedDayShifts;
+
+  function handlePrevPeriod() {
+    const idx = selectablePeriods.findIndex(p => p.value === currentPeriod);
+    if (idx > 0) {
+      currentPeriod = selectablePeriods[idx - 1].value;
+      selectedCalendarDate = ""; 
+    }
+  }
+
+  function handleNextPeriod() {
+    const idx = selectablePeriods.findIndex(p => p.value === currentPeriod);
+    if (idx !== -1 && idx < selectablePeriods.length - 1) {
+      currentPeriod = selectablePeriods[idx + 1].value;
+      selectedCalendarDate = "";
+    }
+  }
+
   $: if (members && members.filter(m => m.isActive !== false).length === 0) {
     loginScreenMode = "register";
   }
@@ -2419,283 +2468,208 @@
       <!-- ========================================================================= -->
       {#if activeTab === "calendar"}
         <div class="space-y-6" in:fade={{ duration: 150 }}>
-            <!-- スマホ専用 横画面回転ガイド案内 -->
-            <div class="mobile-landscape-tip flex items-center gap-2">
-              <span>💡</span>
-              <span
-                >スマホを横向き（ランドスケープ）に回転させると、カレンダー全体がより広く見やすくなります。</span
+          <!-- Date Selector / Month Navigation (ユーザーデザイン完全統合) -->
+          <section class="flex justify-between items-center bg-white p-4.5 rounded-[20px] shadow-sm border border-slate-100">
+            <h2 class="text-lg font-bold text-slate-800 tracking-tight">{currentPeriodLabel || '2026年 7月'}</h2>
+            <div class="flex gap-2">
+              <button
+                type="button"
+                on:click={handlePrevPeriod}
+                class="w-10 h-10 rounded-full flex items-center justify-center bg-slate-50 border border-slate-200 text-slate-600 hover:text-[#005bc1] hover:border-[#005bc1]/30 hover:bg-[#005bc1]/5 transition-all active:scale-90 border-0 cursor-pointer"
               >
+                <span class="material-symbols-outlined">chevron_left</span>
+              </button>
+              <button
+                type="button"
+                on:click={handleNextPeriod}
+                class="w-10 h-10 rounded-full flex items-center justify-center bg-slate-50 border border-slate-200 text-slate-600 hover:text-[#005bc1] hover:border-[#005bc1]/30 hover:bg-[#005bc1]/5 transition-all active:scale-90 border-0 cursor-pointer"
+              >
+                <span class="material-symbols-outlined">chevron_right</span>
+              </button>
             </div>
+          </section>
 
-            <!-- スタッフフィルター (ネオンハイライトトリガー) -->
-            <div
-              class="glass-panel p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white"
-            >
-              <div>
-                <h2
-                  class="text-sm font-bold text-slate-900 tracking-tight flex items-center gap-1.5"
-                >
-                  <Sparkles class="w-4 h-4 text-[#0071e3]" />
-                  個人シフト表示
-                </h2>
-                <p class="text-xs text-slate-500 mt-0.5 font-medium">
-                  名前を選択してハイライト、または「自分だけ」に絞り込んで表示できます。
-                </p>
-              </div>
-
-              <div class="flex items-center gap-2 flex-wrap">
-                <!-- 自分だけ表示トグルボタン -->
-                <button
-                  id="my-shifts-toggle"
-                  on:click={() => {
-                    showMyShiftsOnly = !showMyShiftsOnly;
-                  }}
-                  disabled={!currentUser}
-                  class="flex items-center gap-1.5 px-4 py-2.5 rounded-full text-xs font-bold border transition-all duration-200 {!currentUser
-                    ? 'bg-slate-100 border-slate-200 text-slate-400 cursor-not-allowed'
-                    : showMyShiftsOnly
-                      ? 'bg-[#0071e3] border-[#0071e3] text-white shadow-[0_4px_14px_rgba(0,113,227,0.35)] scale-[1.02]'
-                      : 'bg-white border-slate-200 text-slate-600 hover:border-[#0071e3] hover:text-[#0071e3]'}"
-                >
-                  <svg
-                    class="w-3.5 h-3.5"
-                    viewBox="0 0 20 20"
-                    fill="currentColor"
-                  >
-                    <path
-                      fill-rule="evenodd"
-                      d="M10 9a3 3 0 100-6 3 3 0 000 6zm-7 9a7 7 0 1114 0H3z"
-                      clip-rule="evenodd"
-                    />
-                  </svg>
-                  {showMyShiftsOnly ? "自分だけ表示中" : "自分だけ表示"}
-                </button>
-              </div>
-            </div>
-
-            <!-- 2カラムレイアウト -->
-            <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
-              <!-- 左側: 35マスカレンダー (3/4幅) -->
-              <div class="lg:col-span-3 space-y-3">
-                <!-- 曜日のヘッダー (日曜始まり) -->
-                <div
-                  class="grid grid-cols-7 gap-3 text-center text-xs font-bold text-slate-400 uppercase tracking-widest"
-                >
+          <!-- 2カラムレイアウト (PC表示でのレイアウト崩れを防ぐためPCはカレンダー＋詳細の2カラムに自動レスポンシブ化します) -->
+          <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+            
+            <!-- 左側: カレンダー部 (3カラム分) -->
+            <div class="lg:col-span-3 space-y-6">
+              <!-- Calendar Section (丸型 Apple/iOS風デザイン) -->
+              <section class="bg-white rounded-[24px] p-6 shadow-sm border border-slate-150">
+                <div class="calendar-grid mb-3">
                   {#each CALENDAR_HEADERS as h}
-                    <div class="py-2">{h}</div>
+                    <div class="text-center text-xs font-bold text-slate-400 py-2">{h}</div>
                   {/each}
                 </div>
 
-                <!-- 日付グリッド -->
-                <div class="grid grid-cols-7 gap-3">
+                <div class="calendar-grid gap-y-3">
                   {#each GRID_CELLS_MONTH as d}
                     {@const isRegularClosed = d.isRegularClosed}
-                    {@const isSpecialClosed = specialHolidays.includes(
-                      d.dateStr,
-                    )}
+                    {@const isSpecialClosed = specialHolidays.includes(d.dateStr)}
                     {@const isClosed = isRegularClosed || isSpecialClosed}
                     {@const cellDayNum = Number(d.dateStr.split("-")[2])}
                     {@const cellPeriodHalf = cellDayNum <= 15 ? 'A' : 'B'}
                     {@const cellStatus = cellPeriodHalf === 'A' ? shiftStatusA : shiftStatusB}
                     {@const isCellPublished = cellStatus === 'published'}
                     {@const isVisibleToUser = currentUser?.isAdmin || isCellPublished}
-                    {@const allShifts = shifts.filter(
-                      (s) => s.date === d.dateStr,
-                    ).filter(s => {
+                    
+                    <!-- その日に誰か1人でもアサインされているか -->
+                    {@const dayShifts = shifts.filter(s => s.date === d.dateStr).filter(s => {
                       if (isCellPublished) return true;
                       const m = members.find(mem => mem.id === s.member_id);
                       return m ? m.isActive !== false : true;
                     })}
-                    {@const todayShifts =
-                      showMyShiftsOnly && currentUser
-                        ? allShifts.filter(
-                            (s) => s.member_id === currentUser?.id,
-                          )
-                        : allShifts}
+                    {@const hasShift = dayShifts.length > 0}
+                    {@const isSelected = selectedCalendarDate === d.dateStr}
 
-                    <!-- svelte-ignore a11y_click_events_have_key_events -->
-                    <!-- svelte-ignore a11y_no_static_element_interactions -->
-                    <div
+                    <button
+                      type="button"
                       on:click={() => {
                         if (d.isOtherMonth) return;
-                        if (isRegularClosed) {
-                          triggerToast("毎週水曜日は店舗定休日です。");
-                          return;
-                        }
-                        if (!isVisibleToUser) return;
-                        selectedEditDate = d.dateStr;
+                        selectedCalendarDate = d.dateStr;
                       }}
-                      class="glass-panel p-4 min-h-[160px] flex flex-col justify-between relative bg-white {d.isOtherMonth
-                        ? 'other-month-cell'
-                        : ''} {isClosed && !d.isOtherMonth
-                        ? 'opacity-40 bg-slate-50 border-dashed shadow-none cursor-pointer'
-                        : ''} {!isVisibleToUser && !d.isOtherMonth ? 'cursor-not-allowed' : 'cursor-pointer'}"
+                      disabled={d.isOtherMonth}
+                      class="h-12 flex flex-col items-center justify-center rounded-full cursor-pointer transition-all active:scale-90 border-0 outline-none select-none relative group
+                      {d.isOtherMonth ? 'opacity-0 pointer-events-none' : 'text-slate-800'}
+                      {isSelected ? 'bg-[#005bc1] text-white font-bold shadow-md' : 'bg-transparent hover:bg-slate-50'}"
                     >
-                      <!-- 上部: 日付タイポグラフィ -->
+                      <span class="z-10 text-sm font-semibold">{d.dayNum}</span>
+                      
+                      <!-- アサインありドット (未選択時は青、選択時は白) -->
+                      {#if !d.isOtherMonth && !isClosed && isVisibleToUser && hasShift}
+                        <div class="w-1 h-1 rounded-full mt-0.5 z-10 {isSelected ? 'bg-white' : 'bg-[#005bc1]'}"></div>
+                      {/if}
+
+                      <!-- 定休日・臨時休業バッジ表示 (小さい文字で薄く) -->
+                      {#if !d.isOtherMonth && isClosed}
+                        <span class="text-[7px] font-black absolute bottom-1 z-10 {isSelected ? 'text-white/80' : 'text-slate-400'}">
+                          {isRegularClosed ? "定休" : "臨時"}
+                        </span>
+                      {/if}
+
+                      <!-- 調整中バッジ (管理者以外で未公開の時) -->
+                      {#if !d.isOtherMonth && !isClosed && !isVisibleToUser}
+                        <span class="text-[7px] font-black text-amber-500 absolute bottom-1 z-10">
+                          調整
+                        </span>
+                      {/if}
+                    </button>
+                  {/each}
+                </div>
+              </section>
+            </div>
+
+            <!-- 右側 / 下部: 選択日の詳細表示 (1カラム分) -->
+            <div class="lg:col-span-1 space-y-6">
+              <!-- Selected Day Details -->
+              {#if selectedCalendarDate}
+                {@const dateObj = new Date(selectedCalendarDate)}
+                {@const dayNames = ["日", "月", "火", "水", "木", "金", "土"]}
+                {@const formattedDateStr = `${dateObj.getMonth() + 1}月${dateObj.getDate()}日(${dayNames[dateObj.getDay()]})`}
+                
+                <section class="space-y-4">
+                  <div class="flex items-center justify-between">
+                    <h3 class="text-lg font-black text-slate-800 tracking-tight">{formattedDateStr}</h3>
+                    
+                    {#if isSelectedDatePublished}
+                      <span class="bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full text-xs font-bold">確定済</span>
+                    {:else}
+                      <span class="bg-amber-100 text-amber-800 px-3 py-1 rounded-full text-xs font-bold">調整中</span>
+                    {/if}
+                  </div>
+
+                  <!-- My Shift Card (自分のシフト) -->
+                  <div class="bg-white rounded-[24px] p-5 shadow-sm border border-slate-150 border-l-4 border-l-[#005bc1]">
+                    <div class="flex justify-between items-start mb-4">
                       <div>
-                        <div class="flex items-start justify-between">
-                          <span class="day-number text-xl">
-                            {d.dayNum}
-                            <span
-                              class="text-[9px] text-slate-400 font-bold ml-1 uppercase"
-                              >({d.wName})</span
-                            >
-                          </span>
-                        </div>
-
-                        <!-- 出勤者のカプセルリスト -->
-                        <div class="mt-3.5 space-y-1.5">
-                          {#if d.isOtherMonth}
-                            <!-- 前月・翌月は空欄 -->
-                          {:else if !isVisibleToUser}
-                            <div class="flex flex-col items-center justify-center min-h-[60px] py-2">
-                              <span class="text-xs text-amber-500 font-extrabold flex items-center gap-1 animate-pulse">
-                                調整中 ⏰
-                              </span>
-                            </div>
-                          {:else if isClosed}
-                            <span
-                              class="text-[10px] text-slate-400 block mt-3.5 font-bold text-center"
-                            >
-                              {isRegularClosed ? "定休日" : "臨時休業"}
-                            </span>
-                          {:else if todayShifts.length === 0}
-                            <span
-                              class="text-[10px] text-slate-400 block mt-3.5 font-bold text-center"
-                              >未配置</span
-                            >
+                        <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">YOUR SHIFT</div>
+                        <div class="text-xl font-black text-slate-800 tracking-tight">
+                          {#if mySelectedShift}
+                            {mySelectedShift.time_start || '10:00'} - {mySelectedShift.time_end || '18:00'}
                           {:else}
-                            {#each todayShifts as s}
-                              {@const m = members.find(
-                                (mem) => mem.id === s.member_id,
-                              )}
-                              {@const isTrainee = m?.status === "trainee"}
-                              {@const isHighlighted =
-                                s.member_id === highlightMemberId}
-
-                              <div
-                                class="staff-pill {s.role === 'kitchen'
-                                  ? 'kitchen-pill'
-                                  : 'hall-pill'} {isTrainee
-                                  ? 'trainee-pill'
-                                  : ''} {isHighlighted
-                                  ? 'neon-highlight'
-                                  : ''} flex items-center justify-center gap-0.5 text-[11px] font-extrabold px-1.5 py-0.5 rounded-md"
-                              >
-                                <span class="truncate"
-                                  >{getMemberInitial(
-                                    s.member_name,
-                                    members,
-                                  )}</span
-                                >
-                                <span class="text-[9px] scale-90"
-                                  >{s.role === "kitchen" ? "🍳" : "🛎️"}</span
-                                >
-                                {#if isTrainee}
-                                  <span class="text-[9px] scale-90">🔰</span>
-                                {/if}
-                                {#if s.isLocked}
-                                  <span class="text-[8px] scale-90">🔒</span>
-                                {/if}
-                              </div>
-                            {/each}
+                            お休み
                           {/if}
                         </div>
                       </div>
-                    </div>
-                  {/each}
-                </div>
-              </div>
-
-              <!-- 右側: アシスタントサイドバー (1/4幅) -->
-              <div class="space-y-6">
-                <!-- 給与・優先度アシスト -->
-                <div class="glass-panel p-6 space-y-6 bg-white sticky top-24">
-                  <div>
-                    <h3
-                      class="text-sm font-bold text-slate-900 tracking-tight flex items-center gap-2"
-                    >
-                      <Users class="w-4 h-4 text-[#0071e3]" />
-                      給与・優先度アシスト
-                    </h3>
-                    <p class="text-[10px] text-slate-500 mt-1 leading-relaxed">
-                      当期間の出勤状況をリアルタイムに集計します。
-                    </p>
-                  </div>
-
-                  <!-- AI自動生成カード (スクリーンショット同様) -->
-                  <div
-                    class="bg-slate-50 p-4.5 rounded-xl border border-slate-100 text-xs space-y-3"
-                  >
-                    <div class="flex items-center justify-between">
-                      <span class="font-bold text-slate-700"
-                        >自動生成 (AI最適マッピング)</span
-                      >
-                      <span
-                        class="flex items-center gap-1.5 font-bold text-emerald-600"
-                      >
-                        <span
-                          class="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_#34c759]"
-                        ></span> 充足完了
-                      </span>
-                    </div>
-                    <p
-                      class="text-[10px] text-slate-500 font-medium leading-relaxed"
-                    >
-                      毎週水曜日の定休日、スタッフ別の目標出勤日数、および研修生の土日出勤の平準化ルールがすべて満たされています。
-                    </p>
-                  </div>
-
-                  <!-- スタッフ状況リスト -->
-                  <div class="space-y-3">
-                    <span
-                      class="text-[10px] font-black text-slate-400 uppercase tracking-widest block"
-                      >メンバー稼働状況</span
-                    >
-                    {#each memberAssignedStats as m}
-                      <div
-                        class="sidebar-staff-item flex items-center justify-between"
-                      >
-                        <div>
-                          <div class="flex items-center gap-1.5">
-                            <span class="text-xs font-bold text-slate-800"
-                              >{m.emoji} {m.name}</span
-                            >
-                            <span
-                              class="hope-status-badge {m.status === 'trainee'
-                                ? 'badge-on'
-                                : 'badge-none'} text-[8px] py-0.5 px-1.5"
-                            >
-                              {m.statusName}
-                            </span>
-                          </div>
-
-                          <p
-                            class="text-[9px] text-slate-400 mt-0.5 font-medium"
-                          >
-                            {#if m.status === "trainee"}
-                              土日のみアサイン可能
-                            {:else}
-                              見積もり給与: ¥{(
-                                m.count *
-                                5 *
-                                1050
-                              ).toLocaleString()} (5h/日)
-                            {/if}
-                          </p>
-                        </div>
-
-                        <div class="text-right">
-                          <span class="text-xs font-bold text-slate-800">
-                            {m.count}日出勤
-                          </span>
-                        </div>
+                      <div class="bg-[#005bc1]/10 text-[#005bc1] p-2 rounded-xl">
+                        <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">person_pin</span>
                       </div>
-                    {/each}
+                    </div>
+
+                    {#if mySelectedShift}
+                      <div class="flex items-center gap-2 mb-4">
+                        <span class="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md text-[10px] font-bold">
+                          {#if mySelectedShift.role === 'kitchen'}🍳キッチン{:else}🛎ホール{/if}
+                        </span>
+                        {#if currentUser?.isAdmin}
+                          <span class="bg-[#005bc1]/10 text-[#005bc1] px-2 py-0.5 rounded-md text-[10px] font-bold">管理者</span>
+                        {/if}
+                      </div>
+                    {/if}
+
+                    <div class="pt-4 border-t border-slate-100 flex items-center justify-between">
+                      <span class="text-xs text-slate-400 font-medium">
+                        {#if mySelectedShift}
+                          休憩を含む (実働時間)
+                        {:else}
+                          希望休・シフトアサインなし
+                        {/if}
+                      </span>
+                      
+                      <!-- 管理者の場合のみ「シフト編集」へのショートカットにする -->
+                      {#if currentUser?.isAdmin}
+                        <button
+                          type="button"
+                          on:click={() => {
+                            selectedEditDate = selectedCalendarDate;
+                          }}
+                          class="text-[#005bc1] font-bold text-xs flex items-center gap-0.5 active:opacity-50 border-0 bg-transparent cursor-pointer"
+                        >
+                          シフト編集 <span class="material-symbols-outlined text-xs">edit</span>
+                        </button>
+                      {/if}
+                    </div>
                   </div>
-                </div>
-              </div>
+
+                  <!-- Coworkers List (一緒に出勤するメンバー) -->
+                  <div class="bg-white rounded-[24px] p-5 shadow-sm border border-slate-150 space-y-4">
+                    <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                      一緒に出勤するメンバー ({coworkersSelectedShifts.length})
+                    </h4>
+                    
+                    <div class="space-y-4 max-h-[250px] overflow-y-auto pr-1 hide-scrollbar">
+                      {#each coworkersSelectedShifts as s}
+                        {@const m = members.find(mem => mem.id === s.member_id)}
+                        {@const isTrainee = m?.status === 'trainee'}
+                        
+                        <div class="flex items-center justify-between">
+                          <div class="flex items-center gap-3">
+                            <div class="w-10 h-10 rounded-full bg-[#005bc1]/10 text-[#005bc1] flex items-center justify-center font-bold text-sm border border-[#005bc1]/5">
+                              {getMemberInitial(s.member_name, members)}
+                            </div>
+                            <div>
+                              <div class="font-bold text-xs text-slate-800 flex items-center gap-1">
+                                <span>{s.member_name}</span>
+                                {#if isTrainee}
+                                  <span class="bg-amber-100 text-amber-800 text-[8px] px-1 py-0.2 rounded font-black">🔰</span>
+                                {/if}
+                              </div>
+                              <div class="text-[10px] text-slate-400 font-medium">
+                                {#if s.role === 'kitchen'}🍳キッチン{:else}🛎ホール{/if} / {s.time_start || '10:00'} - {s.time_end || '22:00'}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      {:else}
+                        <p class="text-xs text-slate-400 text-center py-6 font-medium">同僚のアサインはありません</p>
+                      {/each}
+                    </div>
+                  </div>
+                </section>
+              {/if}
             </div>
+
+          </div>
         </div>
       {/if}
 
@@ -2704,81 +2678,60 @@
       <!-- ========================================================================= -->
       {#if activeTab === "submissions"}
         <div class="space-y-6" in:fade={{ duration: 150 }}>
-          <!-- スマホ専用 横画面回転ガイド案内 -->
-          <div class="mobile-landscape-tip flex items-center gap-2">
-            <span>💡</span>
-            <span
-              >スマホを横向き（ランドスケープ）に回転させると、希望カレンダー全体がより広く見やすくなります。</span
-            >
-          </div>
-
+          <!-- Submission Deadline Banner (ユーザーデザイン準拠) -->
           {#if deadlineInfo}
-            <div class="glass-panel p-6 border-l-4 transition-all duration-300 bg-white shadow-[0_8px_30px_rgba(0,0,0,0.03)] {deadlineInfo.type === 'warning'
-              ? 'border-l-rose-500 border-y border-r border-rose-100'
-              : 'border-l-[#0071e3] border-y border-r border-slate-100'}"
-            >
-              <div class="flex flex-col md:flex-row md:items-center justify-between gap-6">
-                <div class="flex items-start gap-4">
-                  <div class="w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 shadow-sm {deadlineInfo.type === 'warning' ? 'bg-rose-50 text-rose-500 border border-rose-100' : 'bg-blue-50 text-[#0071e3] border border-blue-100'}">
-                    {#if deadlineInfo.type === 'warning'}
-                      <span class="text-2xl select-none">⚠️</span>
-                    {:else}
-                      <span class="text-2xl select-none">📅</span>
-                    {/if}
-                  </div>
-                  <div>
-                    <h4 class="text-[10px] font-black uppercase tracking-widest text-slate-400">
-                      {deadlineInfo.title}
-                    </h4>
-                    <p class="text-xs md:text-sm font-bold text-slate-500 mt-1">
-                      {deadlineInfo.mainLabel}
-                    </p>
-                    <p class="text-xl md:text-2xl font-black tracking-tight mt-1.5 {deadlineInfo.type === 'warning' ? 'text-rose-600' : 'text-slate-900'}">
-                      {deadlineInfo.value}
-                    </p>
-                  </div>
-                </div>
-
-                <div class="max-w-md bg-slate-50 p-4 rounded-2xl border border-slate-100/80">
-                  <p class="text-xs md:text-xs font-semibold leading-relaxed {deadlineInfo.type === 'warning' ? 'text-rose-700' : 'text-slate-600'}">
-                    {deadlineInfo.description}
-                  </p>
-                </div>
+            <div class="bg-red-50 border border-red-100 text-red-800 p-4 rounded-2xl flex items-center gap-3.5 shadow-sm {isPastDeadline ? '' : 'animate-pulse'}">
+              <span class="material-symbols-outlined text-red-600">alarm</span>
+              <div>
+                <p class="text-[10px] font-black uppercase tracking-wider opacity-75">SUBMISSION DEADLINE</p>
+                <p class="text-sm font-bold">
+                  {#if isPastDeadline}
+                    提出期限は終了しました：{deadlineInfo.value}
+                  {:else}
+                    提出期限：{deadlineInfo.value}
+                  {/if}
+                </p>
               </div>
             </div>
           {/if}
 
-          <div
-            class="glass-panel p-5 flex flex-col sm:flex-row items-center justify-between gap-4 bg-white"
-          >
+          <!-- Period Selector & Header -->
+          <section class="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
             <div>
-              <h2
-                class="text-sm font-bold text-slate-900 tracking-tight flex items-center gap-1.5"
-              >
-                <Calendar class="w-4 h-4 text-[#0071e3]" />
-                カレンダーで希望提出
-              </h2>
-              <p class="text-xs text-slate-500 mt-0.5 font-medium">
-                カレンダーの日付をタップして休み希望（または出勤可能日）をスマートに設定・提出します。
-              </p>
+              <h2 class="text-2xl font-black text-slate-800 tracking-tight">希望提出</h2>
+              <p class="text-slate-500 text-xs mt-1 font-medium">対象期間：{currentPeriodText || ''}</p>
             </div>
-
-            <div class="flex items-center gap-3.5">
-              <div
-                class="flex items-center gap-1.5 bg-slate-100/60 border border-slate-200/50 rounded-full px-4.5 py-2 text-xs font-bold text-slate-700 select-none"
-              >
+            <div class="flex items-center gap-3">
+              <div class="bg-[#0058bc]/10 text-[#0058bc] px-3.5 py-1.5 rounded-full text-xs font-bold">
+                {currentPeriodHalfText || '後半'}
+              </div>
+              <div class="flex items-center gap-1.5 bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-full text-xs font-bold text-slate-700">
                 <span>{currentUser?.avatar || "🧑‍🍳"}</span>
                 <span>{currentUser?.name || "ゲスト"} さん</span>
               </div>
+            </div>
+          </section>
 
-              <!-- 未入力日のデフォルト設定切替 (UX磨き上げ) -->
-              <div class="flex flex-col items-end gap-1.5">
-                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">未入力日のデフォルト設定</span>
-                <div class="flex bg-slate-100 border border-slate-200/60 p-1 rounded-2xl gap-1 w-[220px]">
+          <!-- 2カラムレイアウト (PCでの見やすさとモバイル特化の調和) -->
+          <div class="grid grid-cols-1 lg:grid-cols-4 gap-8 pb-32 md:pb-8">
+            <!-- 左側: カレンダー & コントロール -->
+            <div class="lg:col-span-3 space-y-6">
+              
+              <!-- 未入力日のデフォルト設定切替 (ユーザーデザイン完全統合) -->
+              <div class="bg-white p-5 rounded-3xl border border-slate-150 shadow-sm space-y-3">
+                <div class="flex items-center justify-between">
+                  <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">未入力日のデフォルト設定</span>
+                  {#if submitPattern === 'A'}
+                    <span class="text-[10px] font-extrabold text-[#0058bc] bg-[#0058bc]/5 px-2 py-0.5 rounded-md">未選択日は出勤になります</span>
+                  {:else}
+                    <span class="text-[10px] font-extrabold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">未選択日は休みになります</span>
+                  {/if}
+                </div>
+                <div class="flex bg-slate-100 p-1 rounded-2xl gap-1 w-full max-w-[280px]">
                   <button
                     type="button"
                     on:click={() => handlePatternSwitch("A")}
-                    class="flex-1 py-1.5 rounded-xl text-xs font-bold transition-all border-0 cursor-pointer {submitPattern === 'A' ? 'bg-white text-[#005bc1] shadow-sm' : 'bg-transparent text-slate-500 hover:text-slate-800'}"
+                    class="flex-1 py-2 rounded-xl text-xs font-bold transition-all border-0 cursor-pointer {submitPattern === 'A' ? 'bg-white text-[#0058bc] shadow-sm' : 'bg-transparent text-slate-500 hover:text-slate-800'}"
                     disabled={isLocked}
                   >
                     出勤可能
@@ -2786,239 +2739,165 @@
                   <button
                     type="button"
                     on:click={() => handlePatternSwitch("B")}
-                    class="flex-1 py-1.5 rounded-xl text-xs font-bold transition-all border-0 cursor-pointer {submitPattern === 'B' ? 'bg-white text-[#005bc1] shadow-sm' : 'bg-transparent text-slate-500 hover:text-slate-800'}"
+                    class="flex-1 py-2 rounded-xl text-xs font-bold transition-all border-0 cursor-pointer {submitPattern === 'B' ? 'bg-white text-[#005bc1] shadow-sm' : 'bg-transparent text-slate-500 hover:text-slate-800'}"
                     disabled={isLocked}
                   >
                     休み希望
                   </button>
                 </div>
               </div>
-            </div>
-          </div>
 
-          <!-- 2カラムレイアウト -->
-          <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
-            <!-- 左側: カレンダー提出ボード -->
-            <div class="lg:col-span-3 space-y-3">
-              <!-- 曜日のヘッダー -->
-              <div
-                class="grid grid-cols-7 gap-3 text-center text-xs font-bold text-slate-400 uppercase tracking-widest"
-              >
-                {#each CALENDAR_HEADERS as h}
-                  <div class="py-2">{h}</div>
-                {/each}
-              </div>
+              <!-- Calendar Card (ユーザーデザイン完全準拠) -->
+              <div class="bg-white rounded-[24px] p-6 shadow-sm border border-slate-150">
+                <div class="calendar-grid mb-3">
+                  {#each CALENDAR_HEADERS as h}
+                    <div class="text-center text-xs font-bold text-slate-400 py-1">{h}</div>
+                  {/each}
+                </div>
 
-              <!-- 日付グリッド (35マス) -->
-              <div class="grid grid-cols-7 gap-3">
-                {#each GRID_CELLS as d}
-                  {@const isRegularClosed = d.isRegularClosed}
-                  {@const isClosed =
-                    isRegularClosed || specialHolidays.includes(d.dateStr)}
-
-                  {@const currentPattern = submitPattern}
-                  {@const isAvail =
-                    staffAvailabilities[d.dateStr] !== undefined
+                <div class="calendar-grid">
+                  {#each GRID_CELLS as d}
+                    {@const isRegularClosed = d.isRegularClosed}
+                    {@const isClosed = isRegularClosed || specialHolidays.includes(d.dateStr)}
+                    {@const currentPattern = submitPattern}
+                    {@const isAvail = staffAvailabilities[d.dateStr] !== undefined
                       ? staffAvailabilities[d.dateStr]
                       : currentPattern === "A"}
 
-                  <button
-                    type="button"
-                    on:click={() => {
-                      if (!d.isOtherMonth && !isClosed && !isLocked) {
-                        handleToggleAvailability(d.dateStr);
-                      }
-                    }}
-                    disabled={d.isOtherMonth || isClosed || isLocked}
-                    class="glass-panel hope-calendar-cell p-4 flex flex-col justify-between text-left bg-white {d.isOtherMonth
-                      ? 'other-month-cell'
-                      : ''} {!d.isOtherMonth && (isClosed || isLocked)
-                      ? 'locked-cell'
-                      : ''} {!d.isOtherMonth &&
-                    !isClosed &&
-                    !isLocked &&
-                    currentPattern === 'A' &&
-                    !isAvail
-                      ? 'hope-off-cell'
-                      : ''} {!d.isOtherMonth &&
-                    !isClosed &&
-                    !isLocked &&
-                    currentPattern === 'B' &&
-                    isAvail
-                      ? 'hope-on-cell'
-                      : ''}"
-                  >
-                    <!-- 上部: 日付 -->
-                    <div class="flex items-start justify-between w-full">
-                      <span class="day-number text-lg">
-                        {d.dayNum}
-                        <span
-                          class="text-[9px] text-slate-400 font-bold ml-1 uppercase"
-                          >({d.wName})</span
-                        >
-                      </span>
-                    </div>
-
-                    <!-- 下部: ステータス表示 -->
-                    <div class="mt-4">
-                      {#if d.isOtherMonth}
-                        <!-- 空 -->
-                      {:else if isRegularClosed}
-                        <span class="hope-status-badge badge-none">定休日</span>
-                      {:else if specialHolidays.includes(d.dateStr)}
-                        <span class="hope-status-badge badge-none"
-                          >臨時休業</span
-                        >
-                      {:else if isLocked}
-                        <span class="hope-status-badge badge-none"
-                          >🔒 締切ロック</span
-                        >
-                      {:else if currentPattern === "A"}
+                    <button
+                      type="button"
+                      on:click={() => {
+                        if (!d.isOtherMonth && !isClosed && !isLocked) {
+                          handleToggleAvailability(d.dateStr);
+                        }
+                      }}
+                      disabled={d.isOtherMonth || isClosed || isLocked}
+                      class="h-16 flex flex-col items-center justify-center rounded-2xl cursor-pointer transition-all active:scale-95 border-0 outline-none select-none
+                      {d.isOtherMonth ? 'opacity-0 pointer-events-none' : ''}
+                      {!d.isOtherMonth && isClosed ? 'bg-slate-50 text-slate-400' : ''}
+                      {!d.isOtherMonth && !isClosed && isAvail ? 'bg-[#0058bc]/10 text-slate-800' : ''}
+                      {!d.isOtherMonth && !isClosed && !isAvail ? 'bg-slate-150 text-slate-600' : ''}"
+                    >
+                      <span class="text-sm font-bold">{d.dayNum}</span>
+                      <span class="text-[9px] uppercase opacity-50 font-bold">{d.wName}</span>
+                      
+                      {#if !d.isOtherMonth && !isClosed}
+                        <div class="status-indicator w-1.5 h-1.5 rounded-full mt-1 {isAvail ? 'bg-[#0058bc]' : 'bg-slate-400'}"></div>
                         {#if !isAvail}
-                          <span class="hope-status-badge badge-off"
-                            >休み希望</span
-                          >
-                        {:else}
-                          <span class="hope-status-badge badge-none opacity-60"
-                            >出勤可能</span
-                          >
+                          <span class="text-[8px] font-bold text-slate-500 mt-0.5">休み</span>
+                        {:else if currentPattern === 'B'}
+                          <span class="text-[8px] font-bold text-[#0058bc] mt-0.5">可能</span>
                         {/if}
-                      {:else if currentPattern === "B"}
-                        {#if isAvail}
-                          <span class="hope-status-badge badge-on"
-                            >出勤可能</span
-                          >
-                        {:else}
-                          <span class="hope-status-badge badge-none opacity-60"
-                            >休み希望</span
-                          >
-                        {/if}
+                      {:else if isRegularClosed}
+                        <span class="text-[8px] font-bold text-slate-400 mt-1">定休</span>
+                      {:else if specialHolidays.includes(d.dateStr)}
+                        <span class="text-[8px] font-bold text-slate-400 mt-1">臨時</span>
                       {/if}
-                    </div>
-                  </button>
-                {/each}
+                    </button>
+                  {/each}
+                </div>
+
+                <!-- 凡例 -->
+                <div class="mt-6 pt-4 border-t border-slate-100 flex justify-between items-center">
+                  <div class="flex items-center gap-2">
+                    <div class="w-3 h-3 rounded-full bg-[#0058bc]"></div>
+                    <span class="text-xs font-semibold text-slate-600">出勤可能</span>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <div class="w-3 h-3 rounded-full bg-slate-400"></div>
+                    <span class="text-xs font-semibold text-slate-600">休み希望</span>
+                  </div>
+                </div>
               </div>
 
-              <div class="flex justify-center pt-4">
-                <div
-                  class="flex flex-col items-center justify-center w-full md:w-[450px] gap-3"
-                >
-                  {#if isPastDeadline}
-                    <!-- 締め切り後 ➔ ロック状態 -->
-                    <div
-                      class="w-full glass-panel p-5 border border-slate-200/60 bg-slate-50/60 rounded-3xl flex flex-col items-center gap-2 text-center shadow-sm"
-                    >
-                      <span
-                        class="text-xs font-bold text-slate-500 flex items-center gap-1.5"
-                      >
-                        🔒 希望シフトの提出・編集は締め切られました
-                      </span>
-                      <span
-                        class="text-[10px] text-slate-400 leading-relaxed font-semibold"
-                      >
-                        提出締め切り日時 ({deadlineObj ? deadlineObj.toLocaleString() : ""})
-                        を過ぎたため、閲覧のみとなっております。遅刻・変更などは店長へ直接ご連絡ください。
-                      </span>
-                    </div>
-                  {:else}
-                    <!-- 締め切り前 ➔ 通常提出状態 -->
-                    <div
-                      class="w-full glass-panel p-5 border border-slate-200/60 bg-white rounded-3xl flex flex-col items-center gap-3 text-center shadow-sm hover:shadow-md transition-all duration-300"
-                    >
-                      <div
-                        class="flex items-center gap-2 text-xs font-bold text-slate-800"
-                      >
-                        {#if isAutoSaving || hasPendingChanges}
-                          <span
-                            class="w-4 h-4 border-2 border-[#0071e3] border-t-transparent rounded-full animate-spin"
-                          ></span>
-                          <span class="text-[#0071e3]"
-                            >希望の変更を下書き保存中...</span
-                          >
-                        {:else if isSubmitted}
-                          <span class="relative flex h-2.5 w-2.5">
-                            <span
-                              class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"
-                            ></span>
-                            <span
-                              class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"
-                            ></span>
-                          </span>
-                          <span class="text-emerald-600 font-extrabold"
-                            >✅ 希望シフト提出済み</span
-                          >
-                        {:else}
-                          <span class="relative flex h-2.5 w-2.5">
-                            <span
-                              class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"
-                            ></span>
-                            <span
-                              class="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"
-                            ></span>
-                          </span>
-                          <span class="text-amber-600 font-extrabold"
-                            >⚠️ 下書き保存中（未提出です）</span
-                          >
-                        {/if}
-                      </div>
-                      <span
-                        class="text-[10px] text-slate-400 leading-relaxed font-semibold"
-                      >
-                        {#if isSubmitted}
-                          ※期限前であれば、タップしてカレンダーを変更後、再提出が可能です。
-                        {:else}
-                          ※カレンダー変更後は自動で下書き保存されますが、必ず下の「確定提出」ボタンを押して完了させてください。
-                        {/if}
-                      </span>
-                      <button
-                        type="button"
-                        on:click={handleExplicitSubmit}
-                        disabled={isSubmittingShift}
-                        class="w-full py-3 transition-all flex items-center justify-center gap-2 text-xs font-bold rounded-2xl cursor-pointer border-0 active:scale-[0.99] {isSubmitted ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200' : 'bg-[#0071e3] hover:bg-[#0077f3] text-white shadow-[0_4px_12px_rgba(0,113,227,0.2)]'}"
-                      >
-                        {isSubmitted ? "提出内容を更新（再提出）" : "希望シフトを確定提出する"}
-                      </button>
-                    </div>
-                  {/if}
-                </div>
+              <!-- 情報案内 -->
+              <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex items-start gap-3">
+                <span class="material-symbols-outlined text-slate-500">info</span>
+                <p class="text-xs text-slate-600 leading-relaxed">
+                  日付をタップして希望を切り替えてください。未入力の日程は、上記で設定した「デフォルト設定」の内容で送信されます。
+                </p>
               </div>
             </div>
 
-            <!-- 右側: ガイドサイドバー -->
+            <!-- 右側: アシスト & 提出ボタン (固定提出用アクションを美しく配置) -->
             <div class="space-y-6">
-              <div class="glass-panel p-6 space-y-5 bg-white sticky top-24">
-                <div>
-                  <h3
-                    class="text-sm font-bold text-slate-900 tracking-tight flex items-center gap-2"
-                  >
-                    <Smartphone class="w-4 h-4 text-[#0071e3]" />
-                    提出アシスト
-                  </h3>
-                  <p class="text-[10px] text-slate-500 mt-1 leading-relaxed">
-                    カレンダーから日付をタップするだけで、自分の希望スケジュールを迅速に提出できます。
-                  </p>
+              <!-- 提出実行カード -->
+              <div class="bg-white p-6 rounded-3xl border border-slate-150 shadow-sm space-y-4">
+                <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+                  <span class="material-symbols-outlined text-[#0058bc]" style="font-size: 18px;">cloud_upload</span>
+                  提出ステータス
+                </h3>
+
+                <div class="flex items-center gap-2.5 text-xs font-bold">
+                  {#if isAutoSaving || hasPendingChanges}
+                    <span class="w-4 h-4 border-2 border-[#0058bc] border-t-transparent rounded-full animate-spin"></span>
+                    <span class="text-[#0058bc]">下書き保存中...</span>
+                  {:else if isSubmitted}
+                    <span class="relative flex h-2.5 w-2.5">
+                      <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                    </span>
+                    <span class="text-emerald-600 font-extrabold">希望提出済み</span>
+                  {:else}
+                    <span class="relative flex h-2.5 w-2.5">
+                      <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                      <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+                    </span>
+                    <span class="text-amber-600 font-extrabold">未提出（下書き）</span>
+                  {/if}
                 </div>
 
-                <!-- ルールリマインド -->
-                <div
-                  class="bg-slate-50 p-4 rounded-xl border border-slate-100 text-[11px] space-y-2.5"
+                <p class="text-[10px] text-slate-400 leading-relaxed font-semibold">
+                  {#if isPastDeadline}
+                    ※期限が過ぎたため提出および変更はできません。
+                  {:else if isSubmitted}
+                    ※期限内であれば、変更して何度でも再提出できます。
+                  {:else}
+                    ※カレンダーの変更は自動で下書き保存されますが、必ず確定提出を完了させてください。
+                  {/if}
+                </p>
+
+                <!-- PC用提出ボタン -->
+                <button
+                  type="button"
+                  on:click={handleExplicitSubmit}
+                  disabled={isSubmittingShift || isLocked}
+                  class="hidden md:flex w-full py-4 transition-all items-center justify-center gap-2 text-sm font-bold rounded-2xl cursor-pointer border-0 active:scale-[0.99] {isSubmitted ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-solid border-slate-200' : 'bg-[#0058bc] hover:opacity-90 text-white shadow-[0_4px_12px_rgba(0,88,188,0.2)]'}"
                 >
-                  <span class="font-bold text-slate-700 block"
-                    >桃牛苑 提出ガイドライン</span
-                  >
-                  <ul
-                    class="space-y-1.5 text-[10px] text-slate-500 list-disc list-inside"
-                  >
-                    <li>通常バイトの目標は月10日です。</li>
-                    <li>毎週水曜日は定休日です。</li>
-                    <li>
-                      研修生は土日のみ出勤可能です。平日は自動ロックされます。
-                    </li>
-                  </ul>
-                </div>
+                  <span class="material-symbols-outlined" style="font-size: 16px;">send</span>
+                  {isSubmitted ? "提出内容を更新（再提出）" : "希望シフトを確定提出する"}
+                </button>
+              </div>
+
+              <!-- 提出アシストガイドライン -->
+              <div class="bg-white p-6 rounded-3xl border border-slate-150 shadow-sm space-y-4">
+                <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+                  <span class="material-symbols-outlined text-[#0058bc]" style="font-size: 18px;">menu_book</span>
+                  提出ガイドライン
+                </h3>
+                <ul class="space-y-2.5 text-xs text-slate-500 list-disc list-inside leading-relaxed font-medium">
+                  <li>通常バイトの目標は月10日です。</li>
+                  <li>毎週水曜日は定休日です。</li>
+                  <li>研修生は土日のみ出勤可能です。平日は自動ロックされます。</li>
+                </ul>
               </div>
             </div>
           </div>
+
+          <!-- モバイル用フローティング固定アクション (ユーザーデザイン準拠) -->
+          {#if !isLocked}
+            <div class="fixed bottom-16 left-0 w-full z-40 px-4 pb-4 md:hidden">
+              <button
+                type="button"
+                on:click={handleExplicitSubmit}
+                disabled={isSubmittingShift}
+                class="w-full h-[56px] text-white font-bold rounded-full shadow-lg flex items-center justify-center gap-2 active:scale-[0.98] transition-transform border-0 cursor-pointer {isSubmitted ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-[#0058bc] hover:opacity-90'}"
+              >
+                <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">send</span>
+                <span>{isSubmitted ? "提出内容を更新する" : "シフトを提出する"}</span>
+              </button>
+            </div>
+          {/if}
         </div>
       {/if}
 
