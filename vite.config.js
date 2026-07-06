@@ -6,9 +6,15 @@ export default defineConfig({
   plugins: [svelte()],
   server: {
     port: 3000,
+    host: '127.0.0.1',
+    hmr: {
+      protocol: 'ws',
+      host: '127.0.0.1',
+      port: 3000
+    },
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        target: 'http://127.0.0.1:3001',
         changeOrigin: true
       }
     }

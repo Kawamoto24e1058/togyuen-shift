@@ -2123,64 +2123,78 @@
     </div>
   {/if}
 
-  <!-- Apple Store風セグメントヘッダー -->
-  <header
-    class="py-4 border-b border-slate-200 sticky top-0 z-40 bg-white/90 backdrop-blur-md shadow-sm"
-  >
-    <div
-      class="max-w-7xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-4"
-    >
-      <div class="flex items-center gap-4">
-        <div class="flex items-center gap-2.5">
-          <div
-            class="w-2.5 h-2.5 rounded-full bg-[#0071e3] shadow-[0_0_10px_rgba(0,113,227,0.5)]"
-          ></div>
-          <div>
-            <h1
-              class="text-base font-black tracking-tight text-slate-900 uppercase"
-            >
-              桃牛苑 シフト管理
-            </h1>
-          </div>
-        </div>
-
-        <select
-          bind:value={currentPeriod}
-          on:change={handlePeriodChange}
-          class="bg-slate-100 hover:bg-slate-200 border-0 text-xs font-bold text-slate-700 px-3 py-1.5 rounded-xl outline-none transition-colors cursor-pointer shadow-sm"
-        >
-          {#each selectablePeriods as p}
-            <option value={p.value}>{p.label}</option>
-          {/each}
-        </select>
+  {#if !currentUser}
+    <!-- Google Stitch ログイン前ヘッダー -->
+    <header class="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-6 h-16 bg-white border-b border-slate-200 shadow-sm transition-all duration-300">
+      <div class="flex items-center gap-2">
+        <span class="material-symbols-outlined text-[#005bc1] font-black text-xl">restaurant</span>
+        <h1 class="text-base font-black text-[#005bc1] tracking-tight">桃牛苑</h1>
       </div>
-
-      <!-- スタイリッシュセグメントタブ ＆ LINEユーザープロフィール -->
+      <div class="flex items-center gap-4">
+        <button class="material-symbols-outlined text-slate-500 hover:opacity-80 transition-opacity bg-transparent border-0 cursor-pointer">notifications</button>
+        <div class="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center overflow-hidden">
+          <span class="material-symbols-outlined text-slate-400 text-sm">person</span>
+        </div>
+      </div>
+    </header>
+  {:else}
+    <!-- Apple Store風セグメントヘッダー (ログイン後) -->
+    <header
+      class="py-4 border-b border-slate-200 sticky top-0 z-40 bg-white/90 backdrop-blur-md shadow-sm"
+    >
       <div
-        class="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto"
+        class="max-w-7xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-4"
       >
-        <div class="segmented-control w-full md:w-[480px]">
-          <button
-            on:click={() => changeTab("calendar")}
-            class="segment-btn {activeTab === 'calendar' ? 'active' : ''}"
+        <div class="flex items-center gap-4">
+          <div class="flex items-center gap-2.5">
+            <div
+              class="w-2.5 h-2.5 rounded-full bg-[#0071e3] shadow-[0_0_10px_rgba(0,113,227,0.5)]"
+            ></div>
+            <div>
+              <h1
+                class="text-base font-black tracking-tight text-slate-900 uppercase"
+              >
+                桃牛苑 シフト管理
+              </h1>
+            </div>
+          </div>
+
+          <select
+            bind:value={currentPeriod}
+            on:change={handlePeriodChange}
+            class="bg-slate-100 hover:bg-slate-200 border-0 text-xs font-bold text-slate-700 px-3 py-1.5 rounded-xl outline-none transition-colors cursor-pointer shadow-sm"
           >
-            シフト表<span class="hidden-mobile">・カレンダー</span>
-          </button>
-          <button
-            on:click={() => changeTab("submissions")}
-            class="segment-btn {activeTab === 'submissions' ? 'active' : ''}"
-          >
-            希望提出
-          </button>
-          <button
-            on:click={() => changeTab("manager")}
-            class="segment-btn {activeTab === 'manager' ? 'active' : ''}"
-          >
-            管理者<span class="hidden-mobile">設定</span>
-          </button>
+            {#each selectablePeriods as p}
+              <option value={p.value}>{p.label}</option>
+            {/each}
+          </select>
         </div>
 
-        {#if currentUser}
+        <!-- スタイリッシュセグメントタブ ＆ LINEユーザープロフィール -->
+        <div
+          class="flex flex-col md:flex-row items-center gap-4 w-full md:w-auto"
+        >
+          <div class="segmented-control w-full md:w-[480px]">
+            <button
+              on:click={() => changeTab("calendar")}
+              class="segment-btn {activeTab === 'calendar' ? 'active' : ''}"
+            >
+              シフト表<span class="hidden-mobile">・カレンダー</span>
+            </button>
+            <button
+              on:click={() => changeTab("submissions")}
+              class="segment-btn {activeTab === 'submissions' ? 'active' : ''}"
+            >
+              希望提出
+            </button>
+            <button
+              on:click={() => changeTab("manager")}
+              class="segment-btn {activeTab === 'manager' ? 'active' : ''}"
+            >
+              管理者<span class="hidden-mobile">設定</span>
+            </button>
+          </div>
+
           <div
             class="flex items-center gap-3 bg-slate-50 px-3.5 py-1.5 rounded-2xl border border-slate-200/60 animate-popup w-full md:w-auto"
           >
@@ -2217,10 +2231,10 @@
               終了
             </button>
           </div>
-        {/if}
+        </div>
       </div>
-    </div>
-  </header>
+    </header>
+  {/if}
 
   <!-- メインコンテンツ -->
   <main class="max-w-7xl mx-auto px-6 mt-8">
