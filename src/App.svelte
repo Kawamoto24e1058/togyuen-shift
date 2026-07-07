@@ -32,6 +32,7 @@
    * @property {string} role
    * @property {string[]} roles
    * @property {string} status
+   * @property {boolean} [isTrainee]
    * @property {string} [roleName]
    * @property {string} [statusName]
    * @property {string} [color]
@@ -63,12 +64,16 @@
   const DEFAULT_SHIFTS = [];
 
   function getCurrentMonthPeriod(now = new Date()) {
-    const jstDate = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Tokyo" }));
+    const jstDate = new Date(
+      now.toLocaleString("en-US", { timeZone: "Asia/Tokyo" }),
+    );
     return `${jstDate.getFullYear()}-${String(jstDate.getMonth() + 1).padStart(2, "0")}`;
   }
 
   function getSubmissionPeriod(now = new Date()) {
-    const jstDate = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Tokyo" }));
+    const jstDate = new Date(
+      now.toLocaleString("en-US", { timeZone: "Asia/Tokyo" }),
+    );
     const year = jstDate.getFullYear();
     const month = jstDate.getMonth() + 1; // 1-12
     const day = jstDate.getDate();
@@ -98,18 +103,20 @@
     if (!periodStr) return null;
     const parts = periodStr.split("-");
     if (parts.length < 3) return null;
-    
+
     const year = Number(parts[0]);
     const month = Number(parts[1]);
     const half = parts[2];
-    
+
     const now = new Date();
-    const jstDate = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Tokyo" }));
+    const jstDate = new Date(
+      now.toLocaleString("en-US", { timeZone: "Asia/Tokyo" }),
+    );
     const currentYear = jstDate.getFullYear();
     const currentMonthNum = jstDate.getMonth() + 1;
 
     if (half === "B") {
-      const isSameMonth = (currentYear === year && currentMonthNum === month);
+      const isSameMonth = currentYear === year && currentMonthNum === month;
       const deadlineDate = new Date(year, month - 1, 10, 23, 59, 59);
       const isPast = jstDate > deadlineDate;
 
@@ -119,7 +126,8 @@
           title: `${month}月後半シフト希望提出`,
           mainLabel: "⚠️ 提出期限を過ぎています！",
           value: `${month}月10日 23:59 締切`,
-          description: "期限を過ぎたため、本アプリからの提出や変更はロックされています。シフト希望がある場合は、店長のLINE宛てに直接メッセージを送信してください。"
+          description:
+            "期限を過ぎたため、本アプリからの提出や変更はロックされています。シフト希望がある場合は、店長のLINE宛てに直接メッセージを送信してください。",
         };
       } else {
         return {
@@ -127,7 +135,8 @@
           title: `${month}月後半シフト希望提出`,
           mainLabel: "📅 シフト希望提出締め切り日時",
           value: `${month}月10日 23:59 まで`,
-          description: "※期限厳守でのご提出をお願いいたします。締め切り後は変更ができなくなりますのでご注意ください。"
+          description:
+            "※期限厳守でのご提出をお願いいたします。締め切り後は変更ができなくなりますのでご注意ください。",
         };
       }
     } else {
@@ -144,7 +153,8 @@
           title: `${month}月前半シフト希望提出`,
           mainLabel: "⚠️ 提出期限を過ぎています！",
           value: `${prevMonth}月25日 23:59 締切`,
-          description: "期限を過ぎたため、本アプリからの提出や変更はロックされています。シフト希望がある場合は、店長のLINE宛てに直接メッセージを送信してください。"
+          description:
+            "期限を過ぎたため、本アプリからの提出や変更はロックされています。シフト希望がある場合は、店長のLINE宛てに直接メッセージを送信してください。",
         };
       } else {
         return {
@@ -152,7 +162,8 @@
           title: `${month}月前半シフト希望提出`,
           mainLabel: "📅 シフト希望提出締め切り日時",
           value: `${prevMonth}月25日 23:59 まで`,
-          description: "※期限厳守でのご提出をお願いいたします。締め切り後は変更ができなくなりますのでご注意ください。"
+          description:
+            "※期限厳守でのご提出をお願いいたします。締め切り後は変更ができなくなりますのでご注意ください。",
         };
       }
     }
@@ -164,7 +175,7 @@
   async function changeTab(tab) {
     activeTab = tab;
     const now = new Date();
-    
+
     if (tab === "calendar") {
       currentPeriod = getCurrentMonthPeriod(now);
     } else if (tab === "submissions") {
@@ -174,7 +185,7 @@
         currentPeriod = getSubmissionPeriod(now);
       }
     }
-    
+
     await handlePeriodChange();
   }
 
@@ -354,6 +365,7 @@
 
   // アプリケーションステート
   let activeTab = "calendar";
+  let managerStaffTab = "active";
   /** @type {Shift[]} */
   let shifts = DEFAULT_SHIFTS;
   /** @type {Member[]} */
@@ -373,7 +385,7 @@
   let selectedModalMember = null;
 
   $: currentPeriodLabel = (() => {
-    const matched = selectablePeriods.find(p => p.value === currentPeriod);
+    const matched = selectablePeriods.find((p) => p.value === currentPeriod);
     return matched ? matched.label : currentPeriod;
   })();
 
@@ -383,14 +395,20 @@
     const memberId = member.id;
     const baseMonth = currentPeriod.substring(0, 7);
     if (currentPeriod.length === 7) {
-      const subA = allSubmissions.find(s => s.staffId === memberId && s.period === `${baseMonth}-A`);
-      const subB = allSubmissions.find(s => s.staffId === memberId && s.period === `${baseMonth}-B`);
+      const subA = allSubmissions.find(
+        (s) => s.staffId === memberId && s.period === `${baseMonth}-A`,
+      );
+      const subB = allSubmissions.find(
+        (s) => s.staffId === memberId && s.period === `${baseMonth}-B`,
+      );
       return {
         ...(subA?.availabilities || {}),
-        ...(subB?.availabilities || {})
+        ...(subB?.availabilities || {}),
       };
     } else {
-      const sub = allSubmissions.find(s => s.staffId === memberId && s.period === currentPeriod);
+      const sub = allSubmissions.find(
+        (s) => s.staffId === memberId && s.period === currentPeriod,
+      );
       return sub?.availabilities || {};
     }
   })();
@@ -400,7 +418,9 @@
     if (!member) return "A";
     const memberId = member.id;
     const baseMonth = currentPeriod.substring(0, 7);
-    const sub = allSubmissions.find(s => s.staffId === memberId && s.period.startsWith(baseMonth));
+    const sub = allSubmissions.find(
+      (s) => s.staffId === memberId && s.period.startsWith(baseMonth),
+    );
     return sub?.submitPattern || "A";
   })();
 
@@ -410,11 +430,17 @@
     const memberId = member.id;
     const baseMonth = currentPeriod.substring(0, 7);
     if (currentPeriod.length === 7) {
-      const subA = allSubmissions.find(s => s.staffId === memberId && s.period === `${baseMonth}-A`);
-      const subB = allSubmissions.find(s => s.staffId === memberId && s.period === `${baseMonth}-B`);
-      return (subA?.isSubmitted === true) && (subB?.isSubmitted === true);
+      const subA = allSubmissions.find(
+        (s) => s.staffId === memberId && s.period === `${baseMonth}-A`,
+      );
+      const subB = allSubmissions.find(
+        (s) => s.staffId === memberId && s.period === `${baseMonth}-B`,
+      );
+      return subA?.isSubmitted === true && subB?.isSubmitted === true;
     } else {
-      const sub = allSubmissions.find(s => s.staffId === memberId && s.period === currentPeriod);
+      const sub = allSubmissions.find(
+        (s) => s.staffId === memberId && s.period === currentPeriod,
+      );
       return sub?.isSubmitted === true;
     }
   })();
@@ -438,7 +464,6 @@
   let regInviteCode = "";
   let regInviteName = "";
 
-
   // クイックログイン用
   /** @type {Member | null} */
   let selectedQuickLoginMember = null;
@@ -448,13 +473,19 @@
   let selectedCalendarDate = "";
 
   // リアクティブに初期選択日を設定（今日、または最初の日付）
-  $: if (GRID_CELLS_MONTH && GRID_CELLS_MONTH.length > 0 && !selectedCalendarDate) {
-    const todayStr = new Date().toISOString().split('T')[0];
-    const hasToday = GRID_CELLS_MONTH.some(d => d.dateStr === todayStr && !d.isOtherMonth);
+  $: if (
+    GRID_CELLS_MONTH &&
+    GRID_CELLS_MONTH.length > 0 &&
+    !selectedCalendarDate
+  ) {
+    const todayStr = new Date().toISOString().split("T")[0];
+    const hasToday = GRID_CELLS_MONTH.some(
+      (d) => d.dateStr === todayStr && !d.isOtherMonth,
+    );
     if (hasToday) {
       selectedCalendarDate = todayStr;
     } else {
-      const firstValid = GRID_CELLS_MONTH.find(d => !d.isOtherMonth);
+      const firstValid = GRID_CELLS_MONTH.find((d) => !d.isOtherMonth);
       if (firstValid) {
         selectedCalendarDate = firstValid.dateStr;
       }
@@ -465,34 +496,34 @@
   $: isSelectedDatePublished = (() => {
     if (!selectedCalendarDate) return false;
     const cellDayNum = Number(selectedCalendarDate.split("-")[2]);
-    const cellPeriodHalf = cellDayNum <= 15 ? 'A' : 'B';
-    const cellStatus = cellPeriodHalf === 'A' ? shiftStatusA : shiftStatusB;
-    return cellStatus === 'published';
+    const cellPeriodHalf = cellDayNum <= 15 ? "A" : "B";
+    const cellStatus = cellPeriodHalf === "A" ? shiftStatusA : shiftStatusB;
+    return cellStatus === "published";
   })();
 
   // 選択日におけるアサインシフト一覧
-  $: selectedDayShifts = shifts.filter(s => s.date === selectedCalendarDate);
+  $: selectedDayShifts = shifts.filter((s) => s.date === selectedCalendarDate);
   $: mySelectedShift = (() => {
     if (!currentUser) return null;
     const currentUserId = currentUser.id;
-    return selectedDayShifts.find(s => s.member_id === currentUserId);
+    return selectedDayShifts.find((s) => s.member_id === currentUserId);
   })();
   $: coworkersSelectedShifts = (() => {
     if (!currentUser) return selectedDayShifts;
     const currentUserId = currentUser.id;
-    return selectedDayShifts.filter(s => s.member_id !== currentUserId);
+    return selectedDayShifts.filter((s) => s.member_id !== currentUserId);
   })();
 
   function handlePrevPeriod() {
-    const idx = selectablePeriods.findIndex(p => p.value === currentPeriod);
+    const idx = selectablePeriods.findIndex((p) => p.value === currentPeriod);
     if (idx > 0) {
       currentPeriod = selectablePeriods[idx - 1].value;
-      selectedCalendarDate = ""; 
+      selectedCalendarDate = "";
     }
   }
 
   function handleNextPeriod() {
-    const idx = selectablePeriods.findIndex(p => p.value === currentPeriod);
+    const idx = selectablePeriods.findIndex((p) => p.value === currentPeriod);
     if (idx !== -1 && idx < selectablePeriods.length - 1) {
       currentPeriod = selectablePeriods[idx + 1].value;
       selectedCalendarDate = "";
@@ -502,46 +533,7 @@
   /**
    * @param {Member} member
    */
-  function handleQuickLoginSelect(member) {
-    selectedQuickLoginMember = selectedQuickLoginMember?.id === member.id ? null : member;
-    quickLoginPasscode = ""; // 入力をクリア
-  }
-
-  // 管理者設定ダッシュボード用（動的充足率 ＆ 警告アラート）
-  $: firstAlertDate = Object.keys(validationResults).find(date => !validationResults[date].isValid && !specialHolidays.includes(date));
-  $: firstAlertMsg = firstAlertDate ? validationResults[firstAlertDate].message : null;
-
-  $: averageFillRate = (() => {
-    if (!GRID_CELLS || GRID_CELLS.length === 0) return 100;
-    const validCells = GRID_CELLS.filter(d => !d.isOtherMonth && !d.isRegularClosed && !specialHolidays.includes(d.dateStr));
-    if (validCells.length === 0) return 100;
-    let total = 0;
-    validCells.forEach(d => {
-      const dayShifts = shifts.filter(s => s.date === d.dateStr);
-      const targetCount = d.isWeekend ? 6 : 4;
-      total += Math.min(100, Math.round((dayShifts.length / targetCount) * 100));
-    });
-    return Math.round(total / validCells.length);
-  })();
-
-  $: if (members && members.filter(m => m.isActive !== false).length === 0) {
-    loginScreenMode = "register";
-  }
-
-  /**
-   * @param {Member} member
-   */
-  async function handleSelectStaffLogin(member) {
-    const code = loginPasscode.trim();
-    const isCorrect = member.passcode
-      ? code === member.passcode
-      : (code === "8929" || code === "8888");
-      
-    if (!isCorrect) {
-      triggerToast("⚠️ パスコードが正しくありません。");
-      return;
-    }
-
+  async function handleQuickLoginSelect(member) {
     const registeredUser = {
       ...member,
       avatar: member.emoji || (member.roles?.includes("kitchen") ? "👨‍🍳" : "👩‍💼"),
@@ -550,7 +542,67 @@
     currentUser = registeredUser;
 
     localStorage.setItem("currentUser", JSON.stringify(registeredUser));
-    triggerToast(`💚 ログインしました！おかえりなさい、${registeredUser.name}さん。`);
+    triggerToast(
+      `💚 ログインしました！おかえりなさい、${registeredUser.name}さん。`,
+    );
+
+    selectedStaffId = registeredUser.id;
+    await loadStaffSubmissions(registeredUser.id);
+    requestPushSubscription(registeredUser.id).catch(console.error);
+
+    selectedQuickLoginMember = null;
+    quickLoginPasscode = "";
+  }
+
+  // 管理者設定ダッシュボード用（動的充足率 ＆ 警告アラート）
+  $: firstAlertDate = Object.keys(validationResults).find(
+    (date) =>
+      !validationResults[date].isValid && !specialHolidays.includes(date),
+  );
+  $: firstAlertMsg = firstAlertDate
+    ? validationResults[firstAlertDate].message
+    : null;
+
+  $: averageFillRate = (() => {
+    if (!GRID_CELLS || GRID_CELLS.length === 0) return 100;
+    const validCells = GRID_CELLS.filter(
+      (d) =>
+        !d.isOtherMonth &&
+        !d.isRegularClosed &&
+        !specialHolidays.includes(d.dateStr),
+    );
+    if (validCells.length === 0) return 100;
+    let total = 0;
+    validCells.forEach((d) => {
+      const dayShifts = shifts.filter((s) => s.date === d.dateStr);
+      const targetCount = d.isWeekend ? 6 : 4;
+      total += Math.min(
+        100,
+        Math.round((dayShifts.length / targetCount) * 100),
+      );
+    });
+    return Math.round(total / validCells.length);
+  })();
+
+  $: if (members && members.filter((m) => m.isActive !== false).length === 0) {
+    loginScreenMode = "register";
+  }
+
+  /**
+   * @param {Member} member
+   */
+  async function handleSelectStaffLogin(member) {
+    const registeredUser = {
+      ...member,
+      avatar: member.emoji || (member.roles?.includes("kitchen") ? "👨‍🍳" : "👩‍💼"),
+      isAdmin: !!member.isAdmin,
+    };
+    currentUser = registeredUser;
+
+    localStorage.setItem("currentUser", JSON.stringify(registeredUser));
+    triggerToast(
+      `💚 ログインしました！おかえりなさい、${registeredUser.name}さん。`,
+    );
 
     selectedStaffId = registeredUser.id;
     await loadStaffSubmissions(registeredUser.id);
@@ -562,14 +614,9 @@
   // --- 新ログイン/登録処理ロジック (UXリファイン統合) ---
   async function handleIdLogin() {
     const idStr = loginStaffIdInput.trim();
-    const pass = loginPasswordInput.trim();
 
     if (!idStr) {
       triggerToast("⚠️ スタッフIDを入力してください。");
-      return;
-    }
-    if (!pass) {
-      triggerToast("⚠️ パスワード（暗証番号）を入力してください。");
       return;
     }
 
@@ -580,18 +627,11 @@
     }
     const idNum = parseInt(match[0], 10);
 
-    const member = members.find(m => Number(m.id) === idNum && m.isActive !== false);
+    const member = members.find(
+      (m) => Number(m.id) === idNum && m.isActive !== false,
+    );
     if (!member) {
       triggerToast("⚠️ 該当するスタッフが見つかりません。");
-      return;
-    }
-
-    const isCorrect = member.passcode
-      ? pass === member.passcode
-      : (pass === "8929" || pass === "8888");
-
-    if (!isCorrect) {
-      triggerToast("⚠️ パスワードが正しくありません。");
       return;
     }
 
@@ -603,7 +643,9 @@
     currentUser = registeredUser;
 
     localStorage.setItem("currentUser", JSON.stringify(registeredUser));
-    triggerToast(`💚 ログインしました！おかえりなさい、${registeredUser.name}さん。`);
+    triggerToast(
+      `💚 ログインしました！おかえりなさい、${registeredUser.name}さん。`,
+    );
 
     selectedStaffId = registeredUser.id;
     await loadStaffSubmissions(registeredUser.id);
@@ -614,35 +656,45 @@
   }
 
   async function handleInviteRegister() {
-    const code = regInviteCode.trim();
     const name = regInviteName.trim();
+    const initial = regInitialChar.trim();
 
-    if (!code) {
-      triggerToast("⚠️ 招待コードを入力してください。");
-      return;
-    }
     if (!name) {
       triggerToast("⚠️ お名前を入力してください。");
       return;
     }
 
-    if (code !== "8929" && code !== "8888") {
-      triggerToast("⚠️ 招待コードが正しくありません。店舗管理者に確認してください。");
+    if (!initial) {
+      triggerToast("⚠️ シフト表示用の1文字を入力してください。");
+      return;
+    }
+
+    if (initial.length !== 1) {
+      triggerToast("⚠️ シフト表示用文字は1文字のみ指定してください。");
+      return;
+    }
+
+    // 既存アクティブメンバーとイニシャル被りチェック
+    const isDuplicate = members.some(
+      (m) => m.isActive !== false && m.initialChar === initial
+    );
+    if (isDuplicate) {
+      triggerToast(`⚠️ 「${initial}」は既に他のスタッフが使用しています。別の文字を指定してください。`);
       return;
     }
 
     isRegistering = true;
     try {
-      // 招待コード登録時は、デフォルトで「ホール」ロール、ステータスは「regular」、初期パスコードは "8888" とする
+      // パスコード登録を廃止したため、バックエンド側にはデフォルト値として空文字または適当な値を送る
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: name,
-          initialChar: name.substring(0, 1),
+          initialChar: initial,
           roles: regRoles && regRoles.length ? regRoles : ["hall"],
           status: regIsTrainee ? "trainee" : "regular",
-          passcode: "8888" // デフォルト初期値
+          passcode: "",
         }),
       });
 
@@ -661,11 +713,12 @@
 
         localStorage.setItem("currentUser", JSON.stringify(registeredUser));
         triggerToast(
-          `💚 登録が完了しました！${registeredUser.name}さん、歓迎します。スタッフID: TN-${String(registeredUser.id).padStart(5, '0')}`,
+          `💚 登録が完了しました！${registeredUser.name}さん、歓迎します。スタッフID: TN-${String(registeredUser.id).padStart(5, "0")}`,
         );
 
         regInviteCode = "";
         regInviteName = "";
+        regInitialChar = "";
         regRoles = [];
         regIsTrainee = false;
 
@@ -684,39 +737,7 @@
   }
 
   async function handleQuickLoginSubmit() {
-    if (!selectedQuickLoginMember) return;
-    const code = quickLoginPasscode.trim();
-
-    if (!code) {
-      triggerToast("⚠️ パスコードを入力してください。");
-      return;
-    }
-
-    const isCorrect = selectedQuickLoginMember.passcode
-      ? code === selectedQuickLoginMember.passcode
-      : (code === "8929" || code === "8888");
-
-    if (!isCorrect) {
-      triggerToast("⚠️ パスコードが正しくありません。");
-      return;
-    }
-
-    const registeredUser = {
-      ...selectedQuickLoginMember,
-      avatar: selectedQuickLoginMember.emoji || (selectedQuickLoginMember.roles?.includes("kitchen") ? "👨‍🍳" : "👩‍💼"),
-      isAdmin: !!selectedQuickLoginMember.isAdmin,
-    };
-    currentUser = registeredUser;
-
-    localStorage.setItem("currentUser", JSON.stringify(registeredUser));
-    triggerToast(`💚 ログインしました！おかえりなさい、${registeredUser.name}さん。`);
-
-    selectedStaffId = registeredUser.id;
-    await loadStaffSubmissions(registeredUser.id);
-    requestPushSubscription(registeredUser.id).catch(console.error);
-
-    selectedQuickLoginMember = null;
-    quickLoginPasscode = "";
+    // クイックログイン時に直接ログインするため、この関数は不要ですが、互換性維持のため空関数として残すか廃止します
   }
 
   /**
@@ -746,11 +767,12 @@
           localStorage.setItem("currentUser", JSON.stringify(updatedUser));
         }
 
-        const mName = members.find((m) => m.id === memberId)?.name || "スタッフ";
+        const mName =
+          members.find((m) => m.id === memberId)?.name || "スタッフ";
         triggerToast(
           isAdmin
             ? `👑 ${mName}さんに管理者権限を付与しました。`
-            : `👤 ${mName}さんの管理者権限を剥奪しました。`
+            : `👤 ${mName}さんの管理者権限を剥奪しました。`,
         );
       } else {
         throw new Error(await res.text());
@@ -763,15 +785,19 @@
   }
 
   async function handleDatabaseReset() {
-    const ok = confirm("🚨 警告: データベース（全スタッフ、全希望データ）を完全にリセットします。よろしいですか？");
+    const ok = confirm(
+      "🚨 警告: データベース（全スタッフ、全希望データ）を完全にリセットします。よろしいですか？",
+    );
     if (!ok) return;
 
-    const finalOk = confirm("⚠️ 本当に実行しますか？この操作は絶対に元に戻せません！");
+    const finalOk = confirm(
+      "⚠️ 本当に実行しますか？この操作は絶対に元に戻せません！",
+    );
     if (!finalOk) return;
 
     try {
       const res = await fetch("/api/auth/reset", {
-        method: "POST"
+        method: "POST",
       });
       if (res.ok) {
         const data = await res.json();
@@ -816,29 +842,30 @@
     return null;
   }
 
-
-
-  $: selectablePeriods = (activeTab === "calendar")
-    ? [
-        { value: "2026-06", label: "2026年6月" },
-        { value: "2026-07", label: "2026年7月" },
-        { value: "2026-08", label: "2026年8月" }
-      ]
-    : [
-        { value: "2026-06-A", label: "2026年6月 前半 (1日〜15日) " },
-        { value: "2026-06-B", label: "2026年6月 後半 (16日〜末日)" },
-        { value: "2026-07-A", label: "2026年7月 前半 (1日〜15日)" },
-        { value: "2026-07-B", label: "2026年7月 後半 (16日〜末日)" },
-        { value: "2026-08-A", label: "2026年8月 前半 (1日〜15日)" },
-        { value: "2026-08-B", label: "2026年8月 後半 (16日〜末日)" }
-      ];
+  $: selectablePeriods =
+    activeTab === "calendar"
+      ? [
+          { value: "2026-06", label: "2026年6月" },
+          { value: "2026-07", label: "2026年7月" },
+          { value: "2026-08", label: "2026年8月" },
+        ]
+      : [
+          { value: "2026-06-A", label: "2026年6月 前半 (1日〜15日) " },
+          { value: "2026-06-B", label: "2026年6月 後半 (16日〜末日)" },
+          { value: "2026-07-A", label: "2026年7月 前半 (1日〜15日)" },
+          { value: "2026-07-B", label: "2026年7月 後半 (16日〜末日)" },
+          { value: "2026-08-A", label: "2026年8月 前半 (1日〜15日)" },
+          { value: "2026-08-B", label: "2026年8月 後半 (16日〜末日)" },
+        ];
 
   $: deadlineInfo = getDeadlineInfo(currentPeriod);
 
   $: deadlineObj = getDeadlineDateForPeriod(currentPeriod);
   $: isPastDeadline = deadlineObj ? new Date() > deadlineObj : false;
   $: mySubmission = allSubmissions.find(
-    (sub) => sub.period === currentPeriod && Number(sub.staffId) === Number(currentUser?.id)
+    (sub) =>
+      sub.period === currentPeriod &&
+      Number(sub.staffId) === Number(currentUser?.id),
   );
   $: isSubmitted = mySubmission ? mySubmission.isSubmitted === true : false;
   $: isLocked = !currentUser?.isAdmin && isPastDeadline;
@@ -857,18 +884,18 @@
     }
   }
 
-  $: isAllShiftsValid = DATES.every(d => validationResults[d.dateStr]?.isValid !== false);
+  $: isAllShiftsValid = DATES.every(
+    (d) => validationResults[d.dateStr]?.isValid !== false,
+  );
   $: submittedStaffIds = new Set(
     allSubmissions
       .filter((sub) => sub.period === currentPeriod)
-      .map((sub) => Number(sub.staffId))
+      .map((sub) => Number(sub.staffId)),
   );
   $: unsubmittedMembers = members.filter(
-    (m) => m.isActive !== false && !submittedStaffIds.has(Number(m.id))
+    (m) => m.isActive !== false && !submittedStaffIds.has(Number(m.id)),
   );
   $: unsubmittedCount = unsubmittedMembers.length;
-
-
 
   // LINEログイン・ユーザーセッション用ステート
   /** @type {Member | null} */
@@ -891,20 +918,20 @@
    */
   async function requestPushSubscription(memberId) {
     if (typeof window === "undefined" || !memberId) return;
-    if (!('Notification' in window) || !('serviceWorker' in navigator)) {
-      console.warn('[Push] このブラウザは通知をサポートしていません。');
+    if (!("Notification" in window) || !("serviceWorker" in navigator)) {
+      console.warn("[Push] このブラウザは通知をサポートしていません。");
       pushPermissionStatus = "denied";
       return;
     }
 
-    if (Notification.permission === 'default') {
+    if (Notification.permission === "default") {
       pushPermissionStatus = "requesting";
     }
 
     try {
       const permission = await Notification.requestPermission();
-      if (permission !== 'granted') {
-        console.info('[Push] 通知許可が得られませんでした。');
+      if (permission !== "granted") {
+        console.info("[Push] 通知許可が得られませんでした。");
         pushPermissionStatus = "denied";
         return;
       }
@@ -915,32 +942,36 @@
 
       // 既存の購読が残っていた場合は一旦解除してクリーンに再登録する
       // (applicationServerKey が変わると InvalidStateError が発生するため)
-      const existingSubscription = await registration.pushManager.getSubscription();
+      const existingSubscription =
+        await registration.pushManager.getSubscription();
       if (existingSubscription) {
-        console.info('[Push] 既存の購読を解除してクリーン再登録します...');
+        console.info("[Push] 既存の購読を解除してクリーン再登録します...");
         await existingSubscription.unsubscribe();
       }
 
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_KEY)
+        applicationServerKey: urlBase64ToUint8Array(VAPID_KEY),
       });
 
-      console.info('[Push] 購読成功:', subscription.endpoint);
+      console.info("[Push] 購読成功:", subscription.endpoint);
 
       const res = await fetch("/api/auth/subscribe", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           memberId,
-          subscription
-        })
+          subscription,
+        }),
       });
 
       if (res.ok) {
         triggerToast("🔔 プッシュ通知の設定が完了しました！");
       } else {
-        console.error("プッシュ購読情報の保存に失敗しました:", await res.text());
+        console.error(
+          "プッシュ購読情報の保存に失敗しました:",
+          await res.text(),
+        );
       }
     } catch (err) {
       console.error("[Push] 購読処理中にエラーが発生しました:", err);
@@ -952,10 +983,10 @@
    * @param {string} base64String
    */
   function urlBase64ToUint8Array(base64String) {
-    const padding = '='.repeat((4 - base64String.length % 4) % 4);
+    const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
     const base64 = (base64String + padding)
-      .replace(/\-/g, '+')
-      .replace(/_/g, '/');
+      .replace(/\-/g, "+")
+      .replace(/_/g, "/");
 
     const rawData = window.atob(base64);
     const outputArray = new Uint8Array(rawData.length);
@@ -965,8 +996,6 @@
     }
     return outputArray;
   }
-
-
 
   function handleSignOut() {
     currentUser = null;
@@ -999,7 +1028,11 @@
       return;
     }
     const cleanPasscode = regPasscode.trim();
-    if (!cleanPasscode || cleanPasscode.length !== 4 || !/^\d{4}$/.test(cleanPasscode)) {
+    if (
+      !cleanPasscode ||
+      cleanPasscode.length !== 4 ||
+      !/^\d{4}$/.test(cleanPasscode)
+    ) {
       triggerToast("⚠️ ログイン用のパスコード（数字4桁）を入力してください。");
       return;
     }
@@ -1014,7 +1047,7 @@
           initialChar: regInitialChar.trim(),
           roles: regRoles,
           status: regIsTrainee ? "trainee" : "regular",
-          passcode: cleanPasscode
+          passcode: cleanPasscode,
         }),
       });
 
@@ -1204,20 +1237,25 @@
           const parsedUser = JSON.parse(cachedUser);
           if (parsedUser && parsedUser.id) {
             // Firestoreから取得した最新メンバーリストでキャッシュを更新（isAdminなどを最新化）
-            const freshMember = members.find(m => m.id === parsedUser.id);
+            const freshMember = members.find((m) => m.id === parsedUser.id);
             if (freshMember) {
               const refreshedUser = {
                 ...parsedUser,
                 ...freshMember,
-                avatar: parsedUser.avatar || freshMember.emoji || '👩‍💼',
-                isAdmin: !!freshMember.isAdmin
+                avatar: parsedUser.avatar || freshMember.emoji || "👩‍💼",
+                isAdmin: !!freshMember.isAdmin,
               };
               currentUser = refreshedUser;
               // キャッシュを最新データで上書き
-              localStorage.setItem("currentUser", JSON.stringify(refreshedUser));
+              localStorage.setItem(
+                "currentUser",
+                JSON.stringify(refreshedUser),
+              );
             } else {
               // メンバーリストに存在しなくなった場合はキャッシュをクリア
-              console.warn('[App] Cached user not found in members. Clearing session.');
+              console.warn(
+                "[App] Cached user not found in members. Clearing session.",
+              );
               localStorage.removeItem("currentUser");
             }
 
@@ -1234,7 +1272,7 @@
       }
 
       // 2. ブラウザ通知許可の確認と初期設定
-      if (typeof window !== "undefined" && 'Notification' in window) {
+      if (typeof window !== "undefined" && "Notification" in window) {
         if (Notification.permission === "granted") {
           pushPermissionStatus = "granted";
           if (currentUser) {
@@ -1314,41 +1352,46 @@
   $: isVisibleA = currentUser?.isAdmin || shiftStatusA === "published";
   $: isVisibleB = currentUser?.isAdmin || shiftStatusB === "published";
 
-  $: memberAssignedStats = members.map((m) => {
-    // Only count shifts that are visible to the user
-    const visibleShifts = shifts.filter((s) => {
-      if (s.member_id !== m.id) return false;
-      if (!s.date) return false;
-      const day = Number(s.date.split("-")[2]);
-      return day <= 15 ? isVisibleA : isVisibleB;
-    });
+  $: memberAssignedStats = members
+    .map((m) => {
+      // Only count shifts that are visible to the user
+      const visibleShifts = shifts.filter((s) => {
+        if (s.member_id !== m.id) return false;
+        if (!s.date) return false;
+        const day = Number(s.date.split("-")[2]);
+        return day <= 15 ? isVisibleA : isVisibleB;
+      });
 
-    const count = visibleShifts.length;
-    const rawTarget = m.targetDays !== undefined ? m.targetDays : 10;
+      const count = visibleShifts.length;
+      const rawTarget = m.targetDays !== undefined ? m.targetDays : 10;
 
-    let targetDays;
-    if (isVisibleA && isVisibleB) {
-      targetDays = rawTarget;
-    } else if (isVisibleA || isVisibleB) {
-      targetDays = rawTarget > 7 ? Math.floor(rawTarget / 2) : rawTarget;
-    } else {
-      targetDays = 0;
-    }
+      let targetDays;
+      if (isVisibleA && isVisibleB) {
+        targetDays = rawTarget;
+      } else if (isVisibleA || isVisibleB) {
+        targetDays = rawTarget > 7 ? Math.floor(rawTarget / 2) : rawTarget;
+      } else {
+        targetDays = 0;
+      }
 
-    const target = m.status === "trainee" ? "土日" : targetDays;
-    const isOk = m.status === "trainee" ? count > 0 : count === targetDays;
-    const isUnder = m.status === "regular" && count < targetDays;
-    const isOver = m.status === "regular" && count > targetDays;
-    return {
-      ...m,
-      isActive: m.isActive !== false,
-      count,
-      target,
-      isOk,
-      isUnder,
-      isOver,
-    };
-  }).filter((m) => m.isActive !== false || (shiftStatus === "published" && m.count > 0));
+      const target = m.status === "trainee" ? "土日" : targetDays;
+      const isOk = m.status === "trainee" ? count > 0 : count === targetDays;
+      const isUnder = m.status === "regular" && count < targetDays;
+      const isOver = m.status === "regular" && count > targetDays;
+      return {
+        ...m,
+        isActive: m.isActive !== false,
+        count,
+        target,
+        isOk,
+        isUnder,
+        isOver,
+      };
+    })
+    .filter(
+      (m) =>
+        m.isActive !== false || (shiftStatus === "published" && m.count > 0),
+    );
 
   /**
    * @param {string} msg
@@ -1442,13 +1485,13 @@
   async function saveShiftsManually(currentShifts) {
     try {
       const baseMonth = currentPeriod.substring(0, 7); // e.g. "2026-06"
-      
+
       const shiftsA = currentShifts.filter((s) => {
         if (!s.date || !s.date.startsWith(baseMonth)) return false;
         const day = Number(s.date.split("-")[2]);
         return day <= 15;
       });
-      
+
       const shiftsB = currentShifts.filter((s) => {
         if (!s.date || !s.date.startsWith(baseMonth)) return false;
         const day = Number(s.date.split("-")[2]);
@@ -1466,7 +1509,7 @@
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ shifts: shiftsB, period: `${baseMonth}-B` }),
-        })
+        }),
       ]);
 
       if (!resA.ok || !resB.ok) {
@@ -1568,12 +1611,13 @@
           }
           return m;
         });
-        
-        const mName = members.find((m) => m.id === memberId)?.name || "スタッフ";
+
+        const mName =
+          members.find((m) => m.id === memberId)?.name || "スタッフ";
         triggerToast(
-          isActive 
-            ? `💚 ${mName}さんを有効（復職）に戻しました。` 
-            : `📁 ${mName}さんを退職処理（非表示）にしました。`
+          isActive
+            ? `💚 ${mName}さんを有効（復職）に戻しました。`
+            : `📁 ${mName}さんを退職処理（非表示）にしました。`,
         );
       } else {
         throw new Error(await res.text());
@@ -1582,6 +1626,64 @@
       const err = /** @type {any} */ (error);
       console.error("メンバーのステータス更新に失敗しました:", err);
       triggerToast(`⚠️ ステータス更新失敗: ${err.message}`);
+    }
+  }
+
+  /**
+   * @param {number} memberId
+   * @param {string[]} newRoles
+   */
+  async function updateMemberRoles(memberId, newRoles) {
+    try {
+      const res = await fetch("/api/members/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: memberId, roles: newRoles }),
+      });
+      if (res.ok) {
+        members = members.map((m) => {
+          if (m.id === memberId) {
+            return { ...m, roles: newRoles, role: newRoles[0] || 'hall' };
+          }
+          return m;
+        });
+        triggerToast("🍳 役割設定を更新しました。");
+      } else {
+        throw new Error(await res.text());
+      }
+    } catch (error) {
+      const err = /** @type {any} */ (error);
+      console.error(err);
+      triggerToast(`⚠️ 役割の更新に失敗しました: ${err.message}`);
+    }
+  }
+
+  /**
+   * @param {number} memberId
+   * @param {string} newStatus
+   */
+  async function updateMemberStatus(memberId, newStatus) {
+    try {
+      const res = await fetch("/api/members/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: memberId, status: newStatus }),
+      });
+      if (res.ok) {
+        members = members.map((m) => {
+          if (m.id === memberId) {
+            return { ...m, status: newStatus, isTrainee: newStatus === 'trainee' };
+          }
+          return m;
+        });
+        triggerToast(`🔰 研修ステータスを ${newStatus === 'trainee' ? '研修中' : '一般'} に更新しました。`);
+      } else {
+        throw new Error(await res.text());
+      }
+    } catch (error) {
+      const err = /** @type {any} */ (error);
+      console.error(err);
+      triggerToast(`⚠️ ステータスの更新に失敗しました: ${err.message}`);
     }
   }
 
@@ -2017,7 +2119,7 @@
   async function handleExplicitSubmit() {
     const m = members.find((mem) => mem.id === selectedStaffId);
     if (!m) return;
-    
+
     isSubmittingShift = true;
     const payload = {
       staffId: m.id,
@@ -2028,7 +2130,7 @@
         ? currentUser.lineUserId
         : m.lineUserId || `U06c755lineUser_${m.id}`,
       submittedAt: new Date().toISOString(),
-      isSubmitted: true // Mark as explicitly submitted!
+      isSubmitted: true, // Mark as explicitly submitted!
     };
 
     try {
@@ -2041,12 +2143,12 @@
       if (!res.ok) {
         throw new Error(await res.text());
       }
-      
+
       const data = await res.json();
       if (data.shiftsUpdated) {
         await loadShifts(currentPeriod);
       }
-      
+
       await fetchSubmissions();
       triggerToast("💚 希望シフトを提出しました！");
     } catch (error) {
@@ -2065,7 +2167,6 @@
   class="pb-16 text-slate-800 font-sans select-none selection:bg-[#0071e3]/20"
 >
   <!-- Safari PWA 引き戻し案内画面 -->
-
 
   <!-- トースト -->
   {#if toastMessage}
@@ -2113,7 +2214,9 @@
             後で
           </button>
           <button
-            on:click={() => { if (currentUser) requestPushSubscription(currentUser.id); }}
+            on:click={() => {
+              if (currentUser) requestPushSubscription(currentUser.id);
+            }}
             class="text-[10px] font-bold text-white bg-[#0071e3] hover:bg-[#005bb5] px-3 py-1.5 rounded-lg transition-colors"
           >
             許可する
@@ -2125,15 +2228,29 @@
 
   {#if !currentUser}
     <!-- Google Stitch ログイン前ヘッダー -->
-    <header class="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-6 h-16 bg-white border-b border-slate-200 shadow-sm transition-all duration-300">
+    <header
+      class="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-6 h-16 bg-white border-b border-slate-200 shadow-sm transition-all duration-300"
+    >
       <div class="flex items-center gap-2">
-        <span class="material-symbols-outlined text-[#005bc1] font-black text-xl">restaurant</span>
-        <h1 class="text-base font-black text-[#005bc1] tracking-tight">桃牛苑</h1>
+        <span
+          class="material-symbols-outlined text-[#005bc1] font-black text-xl"
+          >restaurant</span
+        >
+        <h1 class="text-base font-black text-[#005bc1] tracking-tight">
+          桃牛苑
+        </h1>
       </div>
       <div class="flex items-center gap-4">
-        <button class="material-symbols-outlined text-slate-500 hover:opacity-80 transition-opacity bg-transparent border-0 cursor-pointer">notifications</button>
-        <div class="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center overflow-hidden">
-          <span class="material-symbols-outlined text-slate-400 text-sm">person</span>
+        <button
+          class="material-symbols-outlined text-slate-500 hover:opacity-80 transition-opacity bg-transparent border-0 cursor-pointer"
+          >notifications</button
+        >
+        <div
+          class="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center overflow-hidden"
+        >
+          <span class="material-symbols-outlined text-slate-400 text-sm"
+            >person</span
+          >
         </div>
       </div>
     </header>
@@ -2240,49 +2357,84 @@
   <main class="max-w-7xl mx-auto px-6 mt-8">
     {#if !currentUser}
       <!-- Google Stitch デザイン完全刷新 ログイン/新規登録ポータル -->
-      <div class="w-full max-w-[1200px] mx-auto py-8 animate-popup" in:fade={{ duration: 250 }}>
+      <div
+        class="w-full max-w-[1200px] mx-auto py-8 animate-popup"
+        in:fade={{ duration: 250 }}
+      >
         <!-- Welcome Hero & Feature Bento Grid -->
         <section class="w-full mb-12">
           <div class="text-center mb-8">
-            <h2 class="text-2xl md:text-3xl font-black text-slate-800 tracking-tight mb-2">スタッフポータルへようこそ</h2>
-            <p class="text-sm md:text-base text-slate-500 font-medium">桃牛苑の業務をよりスムーズに、よりシンプルに。</p>
+            <h2
+              class="text-2xl md:text-3xl font-black text-slate-800 tracking-tight mb-2"
+            >
+              スタッフポータルへようこそ
+            </h2>
+            <p class="text-sm md:text-base text-slate-500 font-medium">
+              桃牛苑の業務をよりスムーズに、よりシンプルに。
+            </p>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
             <!-- Feature 1 -->
-            <div class="bg-white p-6 rounded-[20px] shadow-sm border border-slate-100/80 flex flex-col items-start gap-4">
-              <div class="w-12 h-12 rounded-xl bg-[#005bc1]/10 text-[#005bc1] flex items-center justify-center">
+            <div
+              class="bg-white p-6 rounded-[20px] shadow-soft border border-slate-100/80 flex flex-col items-start gap-4"
+            >
+              <div
+                class="w-12 h-12 rounded-xl bg-primary/10 text-primary flex items-center justify-center"
+              >
                 <span class="material-symbols-outlined">calendar_month</span>
               </div>
               <div>
-                <h3 class="text-base font-bold text-slate-800 mb-1">シフト確認</h3>
-                <p class="text-xs text-slate-500 leading-relaxed">リアルタイムで自分のスケジュールをチェック。店舗の状況も一目で把握できます。</p>
+                <h3 class="text-base font-bold text-slate-800 mb-1">
+                  シフト確認
+                </h3>
+                <p class="text-xs text-slate-500 leading-relaxed">
+                  リアルタイムで自分のスケジュールをチェック。店舗の状況も一目で把握できます。
+                </p>
               </div>
             </div>
             <!-- Feature 2 -->
-            <div class="bg-white p-6 rounded-[20px] shadow-sm border border-slate-100/80 flex flex-col items-start gap-4">
-              <div class="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+            <div
+              class="bg-white p-6 rounded-[20px] shadow-soft border border-slate-100/80 flex flex-col items-start gap-4"
+            >
+              <div
+                class="w-12 h-12 rounded-xl bg-tertiary-container/10 text-tertiary flex items-center justify-center"
+              >
                 <span class="material-symbols-outlined">send</span>
               </div>
               <div>
-                <h3 class="text-base font-bold text-slate-800 mb-1">希望提出</h3>
-                <p class="text-xs text-slate-500 leading-relaxed">休暇や希望シフトの提出もアプリから。調整結果もすぐにプッシュ通知で届きます。</p>
+                <h3 class="text-base font-bold text-slate-800 mb-1">
+                  希望提出
+                </h3>
+                <p class="text-xs text-slate-500 leading-relaxed">
+                  休暇や希望シフトの提出もアプリから。調整結果もすぐにプッシュ通知で届きます。
+                </p>
               </div>
             </div>
             <!-- Feature 3 -->
-            <div class="bg-white p-6 rounded-[20px] shadow-sm border border-slate-100/80 flex flex-col items-start gap-4">
-              <div class="w-12 h-12 rounded-xl bg-red-50 text-red-500 flex items-center justify-center">
-                <span class="material-symbols-outlined">notifications_active</span>
+            <div
+              class="bg-white p-6 rounded-[20px] shadow-soft border border-slate-100/80 flex flex-col items-start gap-4"
+            >
+              <div
+                class="w-12 h-12 rounded-xl bg-error-container/20 text-error flex items-center justify-center"
+              >
+                <span class="material-symbols-outlined">notifications</span>
               </div>
               <div>
-                <h3 class="text-base font-bold text-slate-800 mb-1">重要なお知らせ</h3>
-                <p class="text-xs text-slate-500 leading-relaxed">店舗からの緊急連絡や、マニュアルの更新などを逃さずキャッチアップ。</p>
+                <h3 class="text-base font-bold text-slate-800 mb-1">
+                  重要なお知らせ
+                </h3>
+                <p class="text-xs text-slate-500 leading-relaxed">
+                  店舗からの緊急連絡や、マニュアルの更新などを逃さずキャッチアップ。
+                </p>
               </div>
             </div>
           </div>
         </section>
 
         <!-- Auth Section -->
-        <section class="w-full max-w-md mx-auto bg-white rounded-[20px] shadow-md border border-slate-100 overflow-hidden">
+        <section
+          class="w-full max-w-md mx-auto bg-white rounded-[20px] shadow-soft border border-slate-100 overflow-hidden"
+        >
           <!-- Tabs -->
           <div class="flex p-1.5 bg-slate-100 m-5 rounded-2xl">
             <button
@@ -2292,7 +2444,10 @@
                 selectedQuickLoginMember = null;
                 quickLoginPasscode = "";
               }}
-              class="flex-grow py-3 px-6 rounded-xl font-bold text-xs transition-all border-0 cursor-pointer {loginScreenMode === 'login' ? 'bg-white text-[#005bc1] shadow-sm' : 'bg-transparent text-slate-500 hover:text-slate-800'}"
+              class="flex-grow py-3 px-6 rounded-xl font-bold text-xs transition-all border-0 cursor-pointer {loginScreenMode ===
+              'login'
+                ? 'bg-white text-primary shadow-sm'
+                : 'bg-transparent text-secondary hover:bg-slate-100'}"
             >
               スタッフログイン
             </button>
@@ -2301,7 +2456,10 @@
               on:click={() => {
                 loginScreenMode = "register";
               }}
-              class="flex-grow py-3 px-6 rounded-xl font-bold text-xs transition-all border-0 cursor-pointer {loginScreenMode === 'register' ? 'bg-white text-[#005bc1] shadow-sm' : 'bg-transparent text-slate-500 hover:text-slate-800'}"
+              class="flex-grow py-3 px-6 rounded-xl font-bold text-xs transition-all border-0 cursor-pointer {loginScreenMode ===
+              'register'
+                ? 'bg-white text-primary shadow-sm'
+                : 'bg-transparent text-secondary hover:bg-slate-100'}"
             >
               新規登録
             </button>
@@ -2311,36 +2469,55 @@
           {#if loginScreenMode === "login"}
             <div class="px-6 pb-8 space-y-6" in:fade={{ duration: 150 }}>
               <div>
-                <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">クイックログイン</p>
-                <div class="flex flex-col gap-3 max-h-64 overflow-y-auto hide-scrollbar p-1">
-                  {#each members.filter(m => m.isActive !== false) as m}
-                    {@const isKitchen = m.roles?.includes('kitchen')}
-                    {@const isTrainee = m.status === 'trainee'}
-                    <div class="flex flex-col bg-slate-50 border border-slate-200/50 rounded-xl overflow-hidden transition-all duration-200 hover:border-[#005bc1]/50">
+                <p
+                  class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4"
+                >
+                  クイックログイン
+                </p>
+                <div
+                  class="flex flex-col gap-3 max-h-[360px] overflow-y-auto hide-scrollbar p-1"
+                >
+                  {#each members.filter((m) => m.isActive !== false) as m}
+                    {@const isKitchen = m.roles?.includes("kitchen")}
+                    {@const isTrainee = m.status === "trainee"}
+                    <div
+                      class="flex flex-col bg-slate-50 border border-slate-200/50 rounded-xl overflow-hidden transition-all duration-200 hover:border-primary/50"
+                    >
                       <button
                         type="button"
                         on:click={() => handleQuickLoginSelect(m)}
                         class="w-full flex items-center justify-between p-4 text-left cursor-pointer transition-all border-0 bg-transparent"
                       >
                         <div class="flex items-center gap-3">
-                          <div class="w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm
-                            {isKitchen ? 'bg-[#005bc1]/10 text-[#005bc1]' : 'bg-emerald-50 text-emerald-600'}">
+                          <div
+                            class="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm shrink-0
+                            {isKitchen
+                              ? 'bg-primary-container/10 text-primary'
+                              : 'bg-tertiary-container/10 text-tertiary'}"
+                          >
                             <span>{m.initialChar || m.name.charAt(0)}</span>
                           </div>
                           <div>
-                            <p class="font-bold text-xs text-slate-800 flex items-center gap-1.5">
+                            <p
+                              class="font-bold text-xs text-slate-800 flex items-center gap-1.5"
+                            >
                               {m.name}
                               {#if isTrainee}
-                                <span class="bg-amber-100 text-amber-800 text-[8px] px-1 rounded font-black">🔰</span>
+                                <span
+                                  class="bg-amber-100 text-amber-800 text-[8px] px-1 rounded font-black"
+                                  >🔰</span
+                                >
                               {/if}
                             </p>
-                            <p class="text-[10px] text-slate-400 font-medium mt-0.5">
-                              {#if m.roles?.includes('kitchen') && m.roles?.includes('hall')}
-                                キッチン / ホール
-                              {:else if m.roles?.includes('kitchen')}
-                                キッチン
+                            <p
+                              class="text-[10px] text-slate-400 font-medium mt-0.5"
+                            >
+                              {#if m.roles?.includes("kitchen") && m.roles?.includes("hall")}
+                                🍳厨房 / 🛎ホール
+                              {:else if m.roles?.includes("kitchen")}
+                                🍳キッチン
                               {:else}
-                                ホール
+                                🛎ホール
                               {/if}
                               {#if m.isAdmin}
                                 (管理者)
@@ -2348,84 +2525,19 @@
                             </p>
                           </div>
                         </div>
-                        <span class="material-symbols-outlined text-slate-400 text-xs transition-transform duration-200 {selectedQuickLoginMember?.id === m.id ? 'rotate-90' : ''}">arrow_forward_ios</span>
+                        <span
+                          class="material-symbols-outlined text-slate-400 text-sm"
+                          >chevron_right</span
+                        >
                       </button>
-
-                      <!-- インライン・パスコード入力欄 (アコーディオン展開) -->
-                      {#if selectedQuickLoginMember?.id === m.id}
-                        <div class="px-4 pb-4 border-t border-slate-100 bg-slate-50/50 space-y-3" in:fade={{ duration: 150 }}>
-                          <div class="flex flex-col gap-1 mt-2">
-                            <label for="quick-pass-{m.id}" class="text-[10px] font-bold text-slate-500 ml-1">パスコードを入力してください</label>
-                            <div class="flex gap-2">
-                              <input
-                                id="quick-pass-{m.id}"
-                                type="password"
-                                pattern="[0-9]*"
-                                inputmode="numeric"
-                                maxlength="4"
-                                bind:value={quickLoginPasscode}
-                                placeholder="••••"
-                                class="flex-grow px-3 py-2.5 bg-white border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#005bc1]/20 focus:border-[#005bc1] text-center text-sm tracking-widest font-black text-slate-800 outline-none transition-all"
-                                on:keydown={(e) => e.key === 'Enter' && handleQuickLoginSubmit()}
-                              />
-                              <button
-                                type="button"
-                                on:click={handleQuickLoginSubmit}
-                                class="px-4 bg-[#005bc1] text-white rounded-xl font-bold text-xs hover:opacity-90 active:scale-[0.97] transition-all border-0 cursor-pointer"
-                              >
-                                送信
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      {/if}
                     </div>
                   {:else}
                     <p class="text-xs text-slate-400 text-center py-8">
-                      登録済みのスタッフはいません。<br />「新規登録」を選択して登録してください。
+                      登録済みのスタッフはいません。<br
+                      />「新規登録」を選択して登録してください。
                     </p>
                   {/each}
                 </div>
-              </div>
-
-              <div class="relative flex items-center gap-4">
-                <div class="flex-grow border-t border-slate-200"></div>
-                <span class="text-[10px] font-bold text-slate-400 uppercase tracking-widest">または IDでログイン</span>
-                <div class="flex-grow border-t border-slate-200"></div>
-              </div>
-
-              <div class="space-y-4">
-                <div class="space-y-1 flex flex-col">
-                  <label for="login-staff-id" class="text-xs font-bold text-slate-700 ml-1">スタッフID</label>
-                  <input
-                    id="login-staff-id"
-                    type="text"
-                    bind:value={loginStaffIdInput}
-                    placeholder="TN-00000"
-                    class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#005bc1]/20 focus:border-[#005bc1] text-xs text-slate-800 outline-none transition-all"
-                  />
-                </div>
-                <div class="space-y-1 flex flex-col">
-                  <label for="login-password" class="text-xs font-bold text-slate-700 ml-1">パスワード（暗証番号）</label>
-                  <input
-                    id="login-password"
-                    type="password"
-                    pattern="[0-9]*"
-                    inputmode="numeric"
-                    maxlength="4"
-                    bind:value={loginPasswordInput}
-                    placeholder="••••"
-                    class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#005bc1]/20 focus:border-[#005bc1] text-xs text-slate-800 outline-none transition-all"
-                    on:keydown={(e) => e.key === 'Enter' && handleIdLogin()}
-                  />
-                </div>
-                <button
-                  type="button"
-                  on:click={handleIdLogin}
-                  class="w-full h-[50px] mt-4 bg-[#0058bc] text-white rounded-xl font-bold hover:opacity-90 active:scale-95 transition-all border-0 cursor-pointer"
-                >
-                  ログイン
-                </button>
               </div>
             </div>
           {/if}
@@ -2433,36 +2545,40 @@
           <!-- Register Content -->
           {#if loginScreenMode === "register"}
             <div class="px-6 pb-8 space-y-4 mt-2" in:fade={{ duration: 150 }}>
-              <div class="p-4 bg-[#005bc1]/5 rounded-xl flex gap-3 items-start border border-[#005bc1]/10">
-                <span class="material-symbols-outlined text-[#005bc1]" style="font-size: 20px;">info</span>
-                <p class="text-[13px] text-slate-600 leading-snug">新規登録には、店舗管理者が発行した「招待コード」（佐藤・鈴木用 8929 / 一般スタッフ用 8888）が必要です。</p>
-              </div>
-              
               <div class="space-y-1 flex flex-col">
-                <label for="reg-invite-code" class="text-xs font-bold text-slate-700 ml-1">招待コード</label>
-                <input
-                  id="reg-invite-code"
-                  type="text"
-                  bind:value={regInviteCode}
-                  placeholder="XXXX-XXXX"
-                  class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#005bc1]/20 focus:border-[#005bc1] text-center tracking-widest font-bold text-xs text-slate-800 outline-none transition-all"
-                />
-              </div>
-
-              <div class="space-y-1 flex flex-col">
-                <label for="reg-invite-name" class="text-xs font-bold text-slate-700 ml-1">お名前</label>
+                <label
+                  for="reg-invite-name"
+                  class="text-xs font-bold text-slate-700 ml-1">お名前</label
+                >
                 <input
                   id="reg-invite-name"
                   type="text"
                   bind:value={regInviteName}
                   placeholder="例：桃牛 太郎"
-                  class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#005bc1]/20 focus:border-[#005bc1] text-xs text-slate-800 outline-none transition-all"
+                  class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary text-xs text-slate-800 outline-none transition-all"
+                />
+              </div>
+
+              <div class="space-y-1 flex flex-col">
+                <label
+                  for="reg-initial-char"
+                  class="text-xs font-bold text-slate-700 ml-1">シフト表表示用の1文字</label
+                >
+                <input
+                  id="reg-initial-char"
+                  type="text"
+                  maxlength="1"
+                  bind:value={regInitialChar}
+                  placeholder="例：太 (他スタッフと重複不可)"
+                  class="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-primary/20 focus:border-primary text-xs text-slate-800 outline-none transition-all"
                 />
               </div>
 
               <!-- 役割選択 & 研修生フラグ (登録に必須) -->
               <div class="flex flex-col gap-1.5 pt-2">
-                <span class="text-xs font-bold text-slate-700 ml-1">担当タグ (役割)</span>
+                <span class="text-xs font-bold text-slate-700 ml-1"
+                  >担当タグ (役割)</span
+                >
                 <div class="flex gap-2">
                   <button
                     type="button"
@@ -2474,7 +2590,9 @@
                       }
                     }}
                     class="flex-1 py-3 px-4 border rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer border-solid
-                    {regRoles.includes('kitchen') ? 'bg-[#005bc1]/10 border-[#005bc1] text-[#005bc1]' : 'bg-slate-50 border-slate-200 text-slate-500'}"
+                    {regRoles.includes('kitchen')
+                      ? 'bg-primary/10 border-primary text-primary'
+                      : 'bg-slate-50 border-slate-200 text-slate-500'}"
                   >
                     <span>🍳</span> キッチン
                   </button>
@@ -2488,7 +2606,9 @@
                       }
                     }}
                     class="flex-1 py-3 px-4 border rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer border-solid
-                    {regRoles.includes('hall') ? 'bg-[#005bc1]/10 border-[#005bc1] text-[#005bc1]' : 'bg-slate-50 border-slate-200 text-slate-500'}"
+                    {regRoles.includes('hall')
+                      ? 'bg-primary/10 border-primary text-primary'
+                      : 'bg-slate-50 border-slate-200 text-slate-500'}"
                   >
                     <span>🛎</span> ホール
                   </button>
@@ -2496,11 +2616,27 @@
               </div>
 
               <!-- 研修生トグル -->
-              <div class="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-xl p-4 mt-1 border-solid">
-                <span class="text-xs font-bold text-slate-700">研修中（トレーニング中）</span>
+              <div
+                class="flex items-center justify-between border rounded-xl p-4 mt-1 border-solid transition-all duration-200
+                {regIsTrainee ? 'bg-amber-50/50 border-amber-300 shadow-sm' : 'bg-slate-50 border-slate-200'}"
+              >
+                <div class="flex items-center gap-2">
+                  <span class="text-xs font-bold text-slate-700">研修中（トレーニング中）</span>
+                  {#if regIsTrainee}
+                    <span class="bg-amber-100 text-amber-800 text-[10px] font-black px-1.5 py-0.5 rounded flex items-center gap-0.5 animate-pulse">🔰 研修中</span>
+                  {:else}
+                    <span class="bg-slate-200 text-slate-600 text-[10px] font-bold px-1.5 py-0.5 rounded">一般</span>
+                  {/if}
+                </div>
                 <label class="relative inline-flex items-center cursor-pointer">
-                  <input type="checkbox" bind:checked={regIsTrainee} class="sr-only peer" />
-                  <div class="w-9 h-5 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-[#005bc1] border-0"></div>
+                  <input
+                    type="checkbox"
+                    bind:checked={regIsTrainee}
+                    class="sr-only peer"
+                  />
+                  <div
+                    class="w-10 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500 border-0"
+                  ></div>
                 </label>
               </div>
 
@@ -2508,10 +2644,12 @@
                 type="button"
                 on:click={handleInviteRegister}
                 disabled={isRegistering}
-                class="w-full h-[50px] mt-4 bg-[#0058bc] text-white rounded-xl font-bold hover:opacity-90 active:scale-95 transition-all border-0 cursor-pointer flex items-center justify-center gap-2"
+                class="w-full h-[50px] mt-4 bg-primary text-on-primary rounded-xl font-bold hover:opacity-90 active:scale-95 transition-all border-0 cursor-pointer flex items-center justify-center gap-2"
               >
                 {#if isRegistering}
-                  <span class="material-symbols-outlined animate-spin text-sm">progress_activity</span>
+                  <span class="material-symbols-outlined animate-spin text-sm"
+                    >progress_activity</span
+                  >
                   <span>登録処理中...</span>
                 {:else}
                   <span>アカウント作成を開始</span>
@@ -2527,57 +2665,77 @@
       <!-- ========================================================================= -->
       {#if activeTab === "calendar"}
         <div class="space-y-6" in:fade={{ duration: 150 }}>
-          <!-- Date Selector / Month Navigation (ユーザーデザイン完全統合) -->
-          <section class="flex justify-between items-center bg-white p-4.5 rounded-[20px] shadow-sm border border-slate-100">
-            <h2 class="text-lg font-bold text-slate-800 tracking-tight">{currentPeriodLabel || '2026年 7月'}</h2>
+          <!-- Date Selector / Month Navigation -->
+          <section
+            class="flex justify-between items-center bg-white p-4.5 rounded-[20px] shadow-soft border border-slate-100"
+          >
+            <h2 class="text-xl font-headline-md font-bold text-on-surface">
+              {currentPeriod.slice(0, 4)}年 {Number(
+                currentPeriod.slice(5, 7),
+              )}月
+            </h2>
             <div class="flex gap-2">
               <button
                 type="button"
                 on:click={handlePrevPeriod}
-                class="w-10 h-10 rounded-full flex items-center justify-center bg-slate-50 border border-slate-200 text-slate-600 hover:text-[#005bc1] hover:border-[#005bc1]/30 hover:bg-[#005bc1]/5 transition-all active:scale-90 border-0 cursor-pointer"
+                class="w-10 h-10 rounded-full flex items-center justify-center bg-white shadow-soft text-primary hover:text-primary/80 transition-all active:scale-90 border-0 cursor-pointer"
               >
                 <span class="material-symbols-outlined">chevron_left</span>
               </button>
               <button
                 type="button"
                 on:click={handleNextPeriod}
-                class="w-10 h-10 rounded-full flex items-center justify-center bg-slate-50 border border-slate-200 text-slate-600 hover:text-[#005bc1] hover:border-[#005bc1]/30 hover:bg-[#005bc1]/5 transition-all active:scale-90 border-0 cursor-pointer"
+                class="w-10 h-10 rounded-full flex items-center justify-center bg-white shadow-soft text-primary hover:text-primary/80 transition-all active:scale-90 border-0 cursor-pointer"
               >
                 <span class="material-symbols-outlined">chevron_right</span>
               </button>
             </div>
           </section>
 
-          <!-- 2カラムレイアウト (PC表示でのレイアウト崩れを防ぐためPCはカレンダー＋詳細の2カラムに自動レスポンシブ化します) -->
+          <!-- 2カラムレイアウト (PCでの表示もレスポンシブにサポート) -->
           <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
-            
-            <!-- 左側: カレンダー部 (3カラム分) -->
+            <!-- 左側: カレンダー (3カラム分) -->
             <div class="lg:col-span-3 space-y-6">
-              <!-- Calendar Section (丸型 Apple/iOS風デザイン) -->
-              <section class="bg-white rounded-[24px] p-6 shadow-sm border border-slate-150">
-                <div class="calendar-grid mb-3">
+              <section
+                class="bg-white rounded-[20px] p-md shadow-soft border border-slate-100"
+              >
+                <div class="grid grid-cols-7 calendar-grid mb-2">
                   {#each CALENDAR_HEADERS as h}
-                    <div class="text-center text-xs font-bold text-slate-400 py-2">{h}</div>
+                    <div
+                      class="text-center font-label-caps text-label-caps py-2
+                      {h === '土'
+                        ? 'text-primary'
+                        : h === '日'
+                          ? 'text-error'
+                          : 'text-secondary'}"
+                    >
+                      {h}
+                    </div>
                   {/each}
                 </div>
 
-                <div class="calendar-grid gap-y-3">
+                <div class="grid grid-cols-7 calendar-grid gap-y-2">
                   {#each GRID_CELLS_MONTH as d}
                     {@const isRegularClosed = d.isRegularClosed}
-                    {@const isSpecialClosed = specialHolidays.includes(d.dateStr)}
+                    {@const isSpecialClosed = specialHolidays.includes(
+                      d.dateStr,
+                    )}
                     {@const isClosed = isRegularClosed || isSpecialClosed}
                     {@const cellDayNum = Number(d.dateStr.split("-")[2])}
-                    {@const cellPeriodHalf = cellDayNum <= 15 ? 'A' : 'B'}
-                    {@const cellStatus = cellPeriodHalf === 'A' ? shiftStatusA : shiftStatusB}
-                    {@const isCellPublished = cellStatus === 'published'}
-                    {@const isVisibleToUser = currentUser?.isAdmin || isCellPublished}
-                    
-                    <!-- その日に誰か1人でもアサインされているか -->
-                    {@const dayShifts = shifts.filter(s => s.date === d.dateStr).filter(s => {
-                      if (isCellPublished) return true;
-                      const m = members.find(mem => mem.id === s.member_id);
-                      return m ? m.isActive !== false : true;
-                    })}
+                    {@const cellPeriodHalf = cellDayNum <= 15 ? "A" : "B"}
+                    {@const cellStatus =
+                      cellPeriodHalf === "A" ? shiftStatusA : shiftStatusB}
+                    {@const isCellPublished = cellStatus === "published"}
+                    {@const isVisibleToUser =
+                      currentUser?.isAdmin || isCellPublished}
+
+                    {@const dayShifts = shifts
+                      .filter((s) => s.date === d.dateStr)
+                      .filter((s) => {
+                        if (isCellPublished) return true;
+                        const m = members.find((mem) => mem.id === s.member_id);
+                        return m ? m.isActive !== false : true;
+                      })}
                     {@const hasShift = dayShifts.length > 0}
                     {@const isSelected = selectedCalendarDate === d.dateStr}
 
@@ -2588,29 +2746,42 @@
                         selectedCalendarDate = d.dateStr;
                       }}
                       disabled={d.isOtherMonth}
-                      class="h-12 flex flex-col items-center justify-center rounded-full cursor-pointer transition-all active:scale-90 border-0 outline-none select-none relative group
-                      {d.isOtherMonth ? 'opacity-0 pointer-events-none' : 'text-slate-800'}
-                      {isSelected ? 'bg-[#005bc1] text-white font-bold shadow-md' : 'bg-transparent hover:bg-slate-50'}"
+                      class="h-12 flex flex-col items-center justify-center font-body-sm text-body-sm relative cursor-pointer border-0 bg-transparent transition-all active:scale-95 outline-none select-none
+                      {d.isOtherMonth ? 'opacity-0 pointer-events-none' : ''}
+                      {isSelected ? 'text-white font-bold' : 'text-on-surface'}"
                     >
-                      <span class="z-10 text-sm font-semibold">{d.dayNum}</span>
-                      
-                      <!-- アサインありドット (未選択時は青、選択時は白) -->
-                      {#if !d.isOtherMonth && !isClosed && isVisibleToUser && hasShift}
-                        <div class="w-1 h-1 rounded-full mt-0.5 z-10 {isSelected ? 'bg-white' : 'bg-[#005bc1]'}"></div>
+                      <span class="z-10">{d.dayNum}</span>
+
+                      {#if isSelected}
+                        <!-- 選択中の青丸背景 (Google Stitch デザイン準拠) -->
+                        <div
+                          class="absolute inset-0 m-1 bg-primary rounded-full shadow-md z-0"
+                        ></div>
+                      {:else if !d.isOtherMonth && !isClosed && isVisibleToUser && hasShift}
+                        <!-- アサインあり（未選択）：薄い青の丸型輪郭とドット -->
+                        <div
+                          class="absolute inset-0 m-1 bg-primary/10 rounded-full border border-primary/20 z-0"
+                        ></div>
+                        <div
+                          class="w-1 h-1 bg-primary rounded-full mt-0.5 z-10"
+                        ></div>
                       {/if}
 
-                      <!-- 定休日・臨時休業バッジ表示 (小さい文字で薄く) -->
-                      {#if !d.isOtherMonth && isClosed}
-                        <span class="text-[7px] font-black absolute bottom-1 z-10 {isSelected ? 'text-white/80' : 'text-slate-400'}">
-                          {isRegularClosed ? "定休" : "臨時"}
-                        </span>
-                      {/if}
-
-                      <!-- 調整中バッジ (管理者以外で未公開の時) -->
-                      {#if !d.isOtherMonth && !isClosed && !isVisibleToUser}
-                        <span class="text-[7px] font-black text-amber-500 absolute bottom-1 z-10">
-                          調整
-                        </span>
+                      <!-- 定休日・臨時休業・調整中のバッジ表示 -->
+                      {#if !isSelected}
+                        {#if isClosed}
+                          <span
+                            class="text-[8px] font-bold text-slate-400 absolute bottom-1 z-10"
+                          >
+                            {isRegularClosed ? "定休" : "臨時"}
+                          </span>
+                        {:else if !isVisibleToUser}
+                          <span
+                            class="text-[8px] font-bold text-amber-500 absolute bottom-1 z-10"
+                          >
+                            調整
+                          </span>
+                        {/if}
                       {/if}
                     </button>
                   {/each}
@@ -2618,63 +2789,93 @@
               </section>
             </div>
 
-            <!-- 右側 / 下部: 選択日の詳細表示 (1カラム分) -->
+            <!-- 右側: 選択日の詳細表示 (1カラム分) -->
             <div class="lg:col-span-1 space-y-6">
-              <!-- Selected Day Details -->
               {#if selectedCalendarDate}
                 {@const dateObj = new Date(selectedCalendarDate)}
                 {@const dayNames = ["日", "月", "火", "水", "木", "金", "土"]}
                 {@const formattedDateStr = `${dateObj.getMonth() + 1}月${dateObj.getDate()}日(${dayNames[dateObj.getDay()]})`}
-                
+
                 <section class="space-y-4">
                   <div class="flex items-center justify-between">
-                    <h3 class="text-lg font-black text-slate-800 tracking-tight">{formattedDateStr}</h3>
-                    
+                    <h3
+                      class="font-headline-md text-headline-md text-on-surface"
+                    >
+                      {formattedDateStr}
+                    </h3>
+
                     {#if isSelectedDatePublished}
-                      <span class="bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full text-xs font-bold">確定済</span>
+                      <span
+                        class="bg-tertiary-container/10 text-tertiary-container px-3 py-1 rounded-full font-label-badge text-label-badge"
+                        >確定済</span
+                      >
                     {:else}
-                      <span class="bg-amber-100 text-amber-800 px-3 py-1 rounded-full text-xs font-bold">調整中</span>
+                      <span
+                        class="bg-error-container/10 text-error px-3 py-1 rounded-full font-label-badge text-label-badge"
+                        >調整中</span
+                      >
                     {/if}
                   </div>
 
                   <!-- My Shift Card (自分のシフト) -->
-                  <div class="bg-white rounded-[24px] p-5 shadow-sm border border-slate-150 border-l-4 border-l-[#005bc1]">
-                    <div class="flex justify-between items-start mb-4">
+                  <div
+                    class="bg-white rounded-[20px] p-md shadow-soft border border-slate-100 border-l-4 border-l-primary"
+                  >
+                    <div class="flex justify-between items-start mb-sm">
                       <div>
-                        <div class="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">YOUR SHIFT</div>
-                        <div class="text-xl font-black text-slate-800 tracking-tight">
+                        <div
+                          class="font-label-caps text-label-caps text-secondary uppercase tracking-wider mb-1"
+                        >
+                          YOUR SHIFT
+                        </div>
+                        <div
+                          class="font-headline-md text-headline-md text-on-surface font-bold"
+                        >
                           {#if mySelectedShift}
-                            {mySelectedShift.start_time || '17:00'}〜
+                            {mySelectedShift.start_time || "17:00"}〜
                           {:else}
                             お休み
                           {/if}
                         </div>
                       </div>
-                      <div class="bg-[#005bc1]/10 text-[#005bc1] p-2 rounded-xl">
-                        <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">person_pin</span>
+                      <div class="bg-primary/10 text-primary p-2 rounded-xl">
+                        <span
+                          class="material-symbols-outlined"
+                          style="font-variation-settings: 'FILL' 1;"
+                          >person_pin</span
+                        >
                       </div>
                     </div>
 
                     {#if mySelectedShift}
                       <div class="flex items-center gap-2 mb-4">
-                        <span class="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-md text-[10px] font-bold">
-                          {#if mySelectedShift.role === 'kitchen'}🍳キッチン{:else}🛎ホール{/if}
+                        <span
+                          class="bg-surface-container text-on-surface-variant px-2 py-0.5 rounded-md font-label-badge text-label-badge"
+                        >
+                          {#if mySelectedShift.role === "kitchen"}🍳キッチン{:else}🛎ホール{/if}
                         </span>
                         {#if currentUser?.isAdmin}
-                          <span class="bg-[#005bc1]/10 text-[#005bc1] px-2 py-0.5 rounded-md text-[10px] font-bold">管理者</span>
+                          <span
+                            class="bg-primary-container/10 text-primary px-2 py-0.5 rounded-md font-label-badge text-label-badge"
+                            >管理者</span
+                          >
                         {/if}
                       </div>
                     {/if}
 
-                    <div class="pt-4 border-t border-slate-100 flex items-center justify-between">
-                      <span class="text-xs text-slate-400 font-medium">
+                    <div
+                      class="pt-4 border-t border-surface-variant flex items-center justify-between"
+                    >
+                      <span
+                        class="font-body-sm text-body-sm text-secondary font-medium"
+                      >
                         {#if mySelectedShift}
                           休憩を含む (実働時間)
                         {:else}
                           希望休・シフトアサインなし
                         {/if}
                       </span>
-                      
+
                       <!-- 管理者の場合のみ「シフト編集」へのショートカットにする -->
                       {#if currentUser?.isAdmin}
                         <button
@@ -2682,52 +2883,75 @@
                           on:click={() => {
                             selectedEditDate = selectedCalendarDate;
                           }}
-                          class="text-[#005bc1] font-bold text-xs flex items-center gap-0.5 active:opacity-50 border-0 bg-transparent cursor-pointer"
+                          class="text-primary font-label-badge text-label-badge flex items-center gap-1 active:opacity-50 border-0 bg-transparent cursor-pointer"
                         >
-                          シフト編集 <span class="material-symbols-outlined text-xs">edit</span>
+                          シフト編集 <span
+                            class="material-symbols-outlined text-xs">edit</span
+                          >
                         </button>
                       {/if}
                     </div>
                   </div>
 
                   <!-- Coworkers List (一緒に出勤するメンバー) -->
-                  <div class="bg-white rounded-[24px] p-5 shadow-sm border border-slate-150 space-y-4">
-                    <h4 class="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                      一緒に出勤するメンバー ({coworkersSelectedShifts.length})
+                  <div
+                    class="bg-white rounded-[20px] p-md shadow-soft border border-slate-100"
+                  >
+                    <h4
+                      class="font-label-caps text-label-caps text-secondary mb-md"
+                    >
+                      今日出勤するメンバー ({coworkersSelectedShifts.length})
                     </h4>
-                    
-                    <div class="space-y-4 max-h-[250px] overflow-y-auto pr-1 hide-scrollbar">
+
+                    <div
+                      class="space-y-4 max-h-[250px] overflow-y-auto pr-1 hide-scrollbar"
+                    >
                       {#each coworkersSelectedShifts as s}
-                        {@const m = members.find(mem => mem.id === s.member_id)}
-                        {@const isTrainee = m?.status === 'trainee'}
-                        
+                        {@const m = members.find(
+                          (mem) => mem.id === s.member_id,
+                        )}
+                        {@const isTrainee = m?.status === "trainee"}
+
                         <div class="flex items-center justify-between">
                           <div class="flex items-center gap-3">
-                            <div class="w-10 h-10 rounded-full bg-[#005bc1]/10 text-[#005bc1] flex items-center justify-center font-bold text-sm border border-[#005bc1]/5">
+                            <div
+                              class="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-sm"
+                            >
                               {getMemberInitial(s.member_name, members)}
                             </div>
                             <div>
-                              <div class="font-bold text-xs text-slate-800 flex items-center gap-1">
+                              <div
+                                class="font-body-lg text-body-lg text-on-surface font-bold flex items-center gap-1"
+                              >
                                 <span>{s.member_name}</span>
                                 {#if isTrainee}
-                                  <span class="bg-amber-100 text-amber-800 text-[8px] px-1 py-0.2 rounded font-black">🔰</span>
+                                  <span
+                                    class="bg-amber-100 text-amber-800 text-[8px] px-1 py-0.2 rounded font-black"
+                                    >🔰</span
+                                  >
                                 {/if}
                               </div>
-                              <div class="text-[10px] text-slate-400 font-medium">
-                                {#if s.role === 'kitchen'}🍳キッチン{:else}🛎ホール{/if} / {s.start_time || '17:00'}〜
+                              <div
+                                class="font-body-sm text-body-sm text-secondary"
+                              >
+                                {#if s.role === "kitchen"}🍳キッチン{:else}🛎ホール{/if}
+                                / {s.start_time || "17:00"}〜
                               </div>
                             </div>
                           </div>
                         </div>
                       {:else}
-                        <p class="text-xs text-slate-400 text-center py-6 font-medium">同僚のアサインはありません</p>
+                        <p
+                          class="font-body-sm text-body-sm text-secondary text-center py-6"
+                        >
+                          同僚のアサインはありません
+                        </p>
                       {/each}
                     </div>
                   </div>
                 </section>
               {/if}
             </div>
-
           </div>
         </div>
       {/if}
@@ -2737,12 +2961,20 @@
       <!-- ========================================================================= -->
       {#if activeTab === "submissions"}
         <div class="space-y-6" in:fade={{ duration: 150 }}>
-          <!-- Submission Deadline Banner (ユーザーデザイン準拠) -->
+          <!-- Submission Deadline Banner -->
           {#if deadlineInfo}
-            <div class="bg-red-50 border border-red-100 text-red-800 p-4 rounded-2xl flex items-center gap-3.5 shadow-sm {isPastDeadline ? '' : 'animate-pulse'}">
-              <span class="material-symbols-outlined text-red-600">alarm</span>
+            <div
+              class="bg-error-container text-on-error-container p-4 rounded-xl flex items-center gap-3 shadow-sm {isPastDeadline
+                ? ''
+                : 'animate-pulse'}"
+            >
+              <span class="material-symbols-outlined">alarm</span>
               <div>
-                <p class="text-[10px] font-black uppercase tracking-wider opacity-75">SUBMISSION DEADLINE</p>
+                <p
+                  class="text-[10px] font-bold uppercase tracking-wider opacity-85"
+                >
+                  SUBMISSION DEADLINE
+                </p>
                 <p class="text-sm font-bold">
                   {#if isPastDeadline}
                     提出期限は終了しました：{deadlineInfo.value}
@@ -2754,74 +2986,114 @@
             </div>
           {/if}
 
-          <!-- Period Selector & Header -->
-          <section class="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+          <!-- Period Selector / Title -->
+          <section
+            class="flex flex-col sm:flex-row sm:items-end justify-between gap-4"
+          >
             <div>
-              <h2 class="text-2xl font-black text-slate-800 tracking-tight">希望提出</h2>
-              <p class="text-slate-500 text-xs mt-1 font-medium">対象期間：{currentPeriodLabel || ''}</p>
+              <h2 class="text-2xl font-black text-slate-800 tracking-tight">
+                希望提出
+              </h2>
+              <p class="text-on-surface-variant text-xs mt-1 font-medium">
+                対象期間：{currentPeriodLabel || ""}
+              </p>
             </div>
             <div class="flex items-center gap-3">
-              <div class="bg-[#0058bc]/10 text-[#0058bc] px-3.5 py-1.5 rounded-full text-xs font-bold">
-                {currentPeriod.endsWith("-A") ? "前半" : currentPeriod.endsWith("-B") ? "後半" : "月間"}
+              <div
+                class="bg-primary/10 text-primary px-3 py-1 rounded-full text-xs font-bold"
+              >
+                {currentPeriod.endsWith("-A")
+                  ? "前半"
+                  : currentPeriod.endsWith("-B")
+                    ? "後半"
+                    : "月間"}
               </div>
-              <div class="flex items-center gap-1.5 bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-full text-xs font-bold text-slate-700">
+              <div
+                class="flex items-center gap-1.5 bg-slate-100 border border-slate-200 px-3 py-1.5 rounded-full text-xs font-bold text-slate-700"
+              >
                 <span>{currentUser?.avatar || "🧑‍🍳"}</span>
                 <span>{currentUser?.name || "ゲスト"} さん</span>
               </div>
             </div>
           </section>
 
-          <!-- 2カラムレイアウト (PCでの見やすさとモバイル特化の調和) -->
+          <!-- 2カラムレイアウト -->
           <div class="grid grid-cols-1 lg:grid-cols-4 gap-8 pb-32 md:pb-8">
-            <!-- 左側: カレンダー & コントロール -->
+            <!-- 左側: カレンダー & デフォルト設定 -->
             <div class="lg:col-span-3 space-y-6">
-              
-              <!-- 未入力日のデフォルト設定切替 (ユーザーデザイン完全統合) -->
-              <div class="bg-white p-5 rounded-3xl border border-slate-150 shadow-sm space-y-3">
+              <!-- 未入力日のデフォルト設定 -->
+              <div
+                class="bg-white p-5 rounded-[20px] border border-slate-100 shadow-sm space-y-3"
+              >
                 <div class="flex items-center justify-between">
-                  <span class="text-xs font-bold text-slate-500 uppercase tracking-wider">未入力日のデフォルト設定</span>
-                  {#if submitPattern === 'A'}
-                    <span class="text-[10px] font-extrabold text-[#0058bc] bg-[#0058bc]/5 px-2 py-0.5 rounded-md">未選択日は出勤になります</span>
+                  <span
+                    class="text-xs font-bold text-slate-500 uppercase tracking-wider"
+                    >未入力日のデフォルト設定</span
+                  >
+                  {#if submitPattern === "A"}
+                    <span
+                      class="text-[10px] font-extrabold text-primary bg-primary/5 px-2 py-0.5 rounded-md"
+                      >未選択日は出勤になります</span
+                    >
                   {:else}
-                    <span class="text-[10px] font-extrabold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">未選択日は休みになります</span>
+                    <span
+                      class="text-[10px] font-extrabold text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md"
+                      >未選択日は休みになります</span
+                    >
                   {/if}
                 </div>
-                <div class="flex bg-slate-100 p-1 rounded-2xl gap-1 w-full max-w-[280px]">
+                <div
+                  class="flex bg-surface-container rounded-xl p-1 gap-1 w-full max-w-[280px]"
+                >
                   <button
                     type="button"
                     on:click={() => handlePatternSwitch("A")}
-                    class="flex-1 py-2 rounded-xl text-xs font-bold transition-all border-0 cursor-pointer {submitPattern === 'A' ? 'bg-white text-[#0058bc] shadow-sm' : 'bg-transparent text-slate-500 hover:text-slate-800'}"
                     disabled={isLocked}
+                    class="flex-1 py-2 rounded-lg text-xs font-bold transition-all border-0 cursor-pointer {submitPattern ===
+                    'A'
+                      ? 'bg-surface-container-lowest text-primary shadow-sm'
+                      : 'bg-transparent text-secondary hover:bg-surface-container-high'}"
                   >
                     出勤可能
                   </button>
                   <button
                     type="button"
                     on:click={() => handlePatternSwitch("B")}
-                    class="flex-1 py-2 rounded-xl text-xs font-bold transition-all border-0 cursor-pointer {submitPattern === 'B' ? 'bg-white text-[#005bc1] shadow-sm' : 'bg-transparent text-slate-500 hover:text-slate-800'}"
                     disabled={isLocked}
+                    class="flex-1 py-2 rounded-lg text-xs font-bold transition-all border-0 cursor-pointer {submitPattern ===
+                    'B'
+                      ? 'bg-surface-container-lowest text-[#005bc1] shadow-sm'
+                      : 'bg-transparent text-secondary hover:bg-surface-container-high'}"
                   >
                     休み希望
                   </button>
                 </div>
               </div>
 
-              <!-- Calendar Card (ユーザーデザイン完全準拠) -->
-              <div class="bg-white rounded-[24px] p-6 shadow-sm border border-slate-150">
-                <div class="calendar-grid mb-3">
+              <!-- Calendar Card (Google Stitch デザイン) -->
+              <div
+                class="bg-surface-container-lowest rounded-[20px] p-5 shadow-sm border border-slate-100"
+              >
+                <div class="grid grid-cols-7 calendar-grid mb-3">
                   {#each CALENDAR_HEADERS as h}
-                    <div class="text-center text-xs font-bold text-slate-400 py-1">{h}</div>
+                    <div
+                      class="text-center font-bold text-xs text-on-surface-variant py-1"
+                    >
+                      {h}
+                    </div>
                   {/each}
                 </div>
 
-                <div class="calendar-grid">
+                <div class="grid grid-cols-7 calendar-grid">
                   {#each GRID_CELLS as d}
                     {@const isRegularClosed = d.isRegularClosed}
-                    {@const isClosed = isRegularClosed || specialHolidays.includes(d.dateStr)}
+                    {@const isClosed =
+                      isRegularClosed || specialHolidays.includes(d.dateStr)}
                     {@const currentPattern = submitPattern}
-                    {@const isAvail = staffAvailabilities[d.dateStr] !== undefined
-                      ? staffAvailabilities[d.dateStr]
-                      : currentPattern === "A"}
+                    {@const isAvail =
+                      staffAvailabilities[d.dateStr] !== undefined
+                        ? staffAvailabilities[d.dateStr]
+                        : currentPattern === "A"}
 
                     <button
                       type="button"
@@ -2831,82 +3103,132 @@
                         }
                       }}
                       disabled={d.isOtherMonth || isClosed || isLocked}
-                      class="h-16 flex flex-col items-center justify-center rounded-2xl cursor-pointer transition-all active:scale-95 border-0 outline-none select-none
+                      class="h-14 flex flex-col items-center justify-center rounded-xl cursor-pointer transition-all active:scale-90 border border-solid select-none outline-none
                       {d.isOtherMonth ? 'opacity-0 pointer-events-none' : ''}
-                      {!d.isOtherMonth && isClosed ? 'bg-slate-50 text-slate-400' : ''}
-                      {!d.isOtherMonth && !isClosed && isAvail ? 'bg-[#0058bc]/10 text-slate-800' : ''}
-                      {!d.isOtherMonth && !isClosed && !isAvail ? 'bg-slate-150 text-slate-600' : ''}"
+                      {!d.isOtherMonth && isClosed
+                        ? 'bg-slate-50 text-slate-400 border-slate-100/50'
+                        : ''}
+                      {!d.isOtherMonth && !isClosed && isAvail
+                        ? 'bg-primary-container/10 text-on-surface border-primary-container/20'
+                        : ''}
+                      {!d.isOtherMonth && !isClosed && !isAvail
+                        ? 'bg-surface-container text-slate-500 border-surface-container'
+                        : ''}"
                     >
-                      <span class="text-sm font-bold">{d.dayNum}</span>
-                      <span class="text-[9px] uppercase opacity-50 font-bold">{d.wName}</span>
-                      
+                      <span class="text-xs font-bold">{d.dayNum}</span>
+                      <span class="text-[9px] uppercase opacity-60 mt-0.5"
+                        >{d.wName}</span
+                      >
+
                       {#if !d.isOtherMonth && !isClosed}
-                        <div class="status-indicator w-1.5 h-1.5 rounded-full mt-1 {isAvail ? 'bg-[#0058bc]' : 'bg-slate-400'}"></div>
+                        <div
+                          class="status-indicator w-1.5 h-1.5 rounded-full mt-1 {isAvail
+                            ? 'bg-primary'
+                            : 'bg-outline'}"
+                        ></div>
                         {#if !isAvail}
-                          <span class="text-[8px] font-bold text-slate-500 mt-0.5">休み</span>
-                        {:else if currentPattern === 'B'}
-                          <span class="text-[8px] font-bold text-[#0058bc] mt-0.5">可能</span>
+                          <span
+                            class="text-[8px] font-bold text-on-surface-variant mt-0.5"
+                            >休み</span
+                          >
                         {/if}
                       {:else if isRegularClosed}
-                        <span class="text-[8px] font-bold text-slate-400 mt-1">定休</span>
+                        <span class="text-[8px] font-bold text-slate-400 mt-1"
+                          >定休</span
+                        >
                       {:else if specialHolidays.includes(d.dateStr)}
-                        <span class="text-[8px] font-bold text-slate-400 mt-1">臨時</span>
+                        <span class="text-[8px] font-bold text-slate-400 mt-1"
+                          >臨時</span
+                        >
                       {/if}
                     </button>
                   {/each}
                 </div>
 
                 <!-- 凡例 -->
-                <div class="mt-6 pt-4 border-t border-slate-100 flex justify-between items-center">
+                <div
+                  class="mt-6 pt-4 border-t border-surface-variant flex justify-between items-center"
+                >
                   <div class="flex items-center gap-2">
-                    <div class="w-3 h-3 rounded-full bg-[#0058bc]"></div>
-                    <span class="text-xs font-semibold text-slate-600">出勤可能</span>
+                    <div class="w-3 h-3 rounded-full bg-primary"></div>
+                    <span class="font-bold text-xs text-on-surface-variant"
+                      >出勤可能</span
+                    >
                   </div>
                   <div class="flex items-center gap-2">
-                    <div class="w-3 h-3 rounded-full bg-slate-400"></div>
-                    <span class="text-xs font-semibold text-slate-600">休み希望</span>
+                    <div class="w-3 h-3 rounded-full bg-outline"></div>
+                    <span class="font-bold text-xs text-on-surface-variant"
+                      >休み希望</span
+                    >
                   </div>
                 </div>
               </div>
 
               <!-- 情報案内 -->
-              <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex items-start gap-3">
-                <span class="material-symbols-outlined text-slate-500">info</span>
-                <p class="text-xs text-slate-600 leading-relaxed">
+              <div
+                class="p-4 bg-surface-bright rounded-xl border border-outline-variant/30 flex items-start gap-3"
+              >
+                <span class="material-symbols-outlined text-secondary"
+                  >info</span
+                >
+                <p class="text-xs text-on-surface-variant leading-relaxed">
                   日付をタップして希望を切り替えてください。未入力の日程は、上記で設定した「デフォルト設定」の内容で送信されます。
                 </p>
               </div>
             </div>
 
-            <!-- 右側: アシスト & 提出ボタン (固定提出用アクションを美しく配置) -->
+            <!-- 右側: 提出ステータス & アシストガイド -->
             <div class="space-y-6">
               <!-- 提出実行カード -->
-              <div class="bg-white p-6 rounded-3xl border border-slate-150 shadow-sm space-y-4">
-                <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
-                  <span class="material-symbols-outlined text-[#0058bc]" style="font-size: 18px;">cloud_upload</span>
+              <div
+                class="bg-white p-6 rounded-[20px] border border-slate-100 shadow-sm space-y-4"
+              >
+                <h3
+                  class="text-sm font-bold text-slate-800 flex items-center gap-2"
+                >
+                  <span
+                    class="material-symbols-outlined text-primary"
+                    style="font-size: 18px;">cloud_upload</span
+                  >
                   提出ステータス
                 </h3>
 
                 <div class="flex items-center gap-2.5 text-xs font-bold">
                   {#if isAutoSaving || hasPendingChanges}
-                    <span class="w-4 h-4 border-2 border-[#0058bc] border-t-transparent rounded-full animate-spin"></span>
-                    <span class="text-[#0058bc]">下書き保存中...</span>
+                    <span
+                      class="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin"
+                    ></span>
+                    <span class="text-primary">下書き保存中...</span>
                   {:else if isSubmitted}
                     <span class="relative flex h-2.5 w-2.5">
-                      <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                      <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                      <span
+                        class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"
+                      ></span>
+                      <span
+                        class="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"
+                      ></span>
                     </span>
-                    <span class="text-emerald-600 font-extrabold">希望提出済み</span>
+                    <span class="text-emerald-600 font-extrabold"
+                      >希望提出済み</span
+                    >
                   {:else}
                     <span class="relative flex h-2.5 w-2.5">
-                      <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
-                      <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"></span>
+                      <span
+                        class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"
+                      ></span>
+                      <span
+                        class="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500"
+                      ></span>
                     </span>
-                    <span class="text-amber-600 font-extrabold">未提出（下書き）</span>
+                    <span class="text-amber-600 font-extrabold"
+                      >未提出（下書き）</span
+                    >
                   {/if}
                 </div>
 
-                <p class="text-[10px] text-slate-400 leading-relaxed font-semibold">
+                <p
+                  class="text-[10px] text-slate-400 leading-relaxed font-semibold"
+                >
                   {#if isPastDeadline}
                     ※期限が過ぎたため提出および変更はできません。
                   {:else if isSubmitted}
@@ -2921,39 +3243,78 @@
                   type="button"
                   on:click={handleExplicitSubmit}
                   disabled={isSubmittingShift || isLocked}
-                  class="hidden md:flex w-full py-4 transition-all items-center justify-center gap-2 text-sm font-bold rounded-2xl cursor-pointer border-0 active:scale-[0.99] {isSubmitted ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-solid border-slate-200' : 'bg-[#0058bc] hover:opacity-90 text-white shadow-[0_4px_12px_rgba(0,88,188,0.2)]'}"
+                  class="hidden md:flex w-full py-4 transition-all items-center justify-center gap-2 text-sm font-bold rounded-2xl cursor-pointer border-0 active:scale-[0.99] {isSubmitted
+                    ? 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-solid border-slate-200'
+                    : 'bg-primary hover:opacity-90 text-on-primary shadow-sm'}"
                 >
-                  <span class="material-symbols-outlined" style="font-size: 16px;">send</span>
-                  {isSubmitted ? "提出内容を更新（再提出）" : "希望シフトを確定提出する"}
+                  {#if isSubmittingShift}
+                    <span class="material-symbols-outlined animate-spin text-sm"
+                      >progress_activity</span
+                    >
+                    <span>送信中...</span>
+                  {:else}
+                    <span
+                      class="material-symbols-outlined"
+                      style="font-size: 16px;">send</span
+                    >
+                    <span
+                      >{isSubmitted
+                        ? "提出内容を更新（再提出）"
+                        : "希望シフトを確定提出する"}</span
+                    >
+                  {/if}
                 </button>
               </div>
 
               <!-- 提出アシストガイドライン -->
-              <div class="bg-white p-6 rounded-3xl border border-slate-150 shadow-sm space-y-4">
-                <h3 class="text-sm font-bold text-slate-800 flex items-center gap-2">
-                  <span class="material-symbols-outlined text-[#0058bc]" style="font-size: 18px;">menu_book</span>
+              <div
+                class="bg-white p-6 rounded-[20px] border border-slate-100 shadow-sm space-y-4"
+              >
+                <h3
+                  class="text-sm font-bold text-slate-800 flex items-center gap-2"
+                >
+                  <span
+                    class="material-symbols-outlined text-primary"
+                    style="font-size: 18px;">menu_book</span
+                  >
                   提出ガイドライン
                 </h3>
-                <ul class="space-y-2.5 text-xs text-slate-500 list-disc list-inside leading-relaxed font-medium">
+                <ul
+                  class="space-y-2.5 text-xs text-slate-500 list-disc list-inside leading-relaxed font-medium"
+                >
                   <li>通常バイトの目標は月10日です。</li>
                   <li>毎週水曜日は定休日です。</li>
-                  <li>研修生は土日のみ出勤可能です。平日は自動ロックされます。</li>
+                  <li>
+                    研修生は土日のみ出勤可能です。平日は自動ロックされます。
+                  </li>
                 </ul>
               </div>
             </div>
           </div>
 
-          <!-- モバイル用フローティング固定アクション (ユーザーデザイン準拠) -->
+          <!-- モバイル用フローティング固定アクション -->
           {#if !isLocked}
-            <div class="fixed bottom-16 left-0 w-full z-40 px-4 pb-4 md:hidden">
+            <div
+              class="fixed bottom-24 left-0 w-full z-40 px-margin-mobile md:hidden"
+            >
               <button
                 type="button"
                 on:click={handleExplicitSubmit}
                 disabled={isSubmittingShift}
-                class="w-full h-[56px] text-white font-bold rounded-full shadow-lg flex items-center justify-center gap-2 active:scale-[0.98] transition-transform border-0 cursor-pointer {isSubmitted ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-[#0058bc] hover:opacity-90'}"
+                class="w-full h-[56px] bg-primary text-on-primary font-bold rounded-full shadow-lg flex items-center justify-center gap-2 active:scale-[0.98] transition-transform border-0 cursor-pointer hover:opacity-90"
               >
-                <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">send</span>
-                <span>{isSubmitted ? "提出内容を更新する" : "シフトを提出する"}</span>
+                {#if isSubmittingShift}
+                  <span class="material-symbols-outlined animate-spin text-sm"
+                    >progress_activity</span
+                  >
+                  <span>送信中...</span>
+                {:else if isSubmitted}
+                  <span class="material-symbols-outlined">check_circle</span>
+                  <span>提出内容を更新する</span>
+                {:else}
+                  <span class="material-symbols-outlined">send</span>
+                  <span>シフトを提出する</span>
+                {/if}
               </button>
             </div>
           {/if}
@@ -2967,11 +3328,15 @@
         {#if !currentUser.isAdmin}
           <!-- 管理者権限ロック (Apple風極上シンプルデザイン) -->
           <div
-            class="min-h-[60vh] flex items-center justify-center bg-slate-50 px-6 py-12 animate-popup rounded-3xl border border-slate-200/50 bg-white glass-panel shadow-sm mt-8"
+            class="min-h-[60vh] flex items-center justify-center bg-white px-6 py-12 animate-popup rounded-3xl border border-slate-200/50 glass-panel shadow-sm mt-8"
             in:fade={{ duration: 150 }}
           >
-            <div class="max-w-md w-full p-6 flex flex-col items-center text-center space-y-6">
-              <div class="w-16 h-16 rounded-full bg-rose-50 flex items-center justify-center text-rose-500 border border-rose-100 text-3xl mx-auto shadow-sm select-none">
+            <div
+              class="max-w-md w-full p-6 flex flex-col items-center text-center space-y-6"
+            >
+              <div
+                class="w-16 h-16 rounded-full bg-rose-50 flex items-center justify-center text-rose-500 border border-rose-100 text-3xl mx-auto shadow-sm select-none"
+              >
                 🔒
               </div>
               <div class="space-y-2">
@@ -2979,260 +3344,341 @@
                   管理者権限が必要です
                 </h3>
                 <p class="text-xs text-slate-400 font-semibold leading-relaxed">
-                  現在サインイン中のアカウント（{currentUser.name}さん）には、<br />
+                  現在サインイン中のアカウント（{currentUser.name}さん）には、<br
+                  />
                   シフトの最終生成や店舗設定を行う管理者権限がありません。
                 </p>
               </div>
             </div>
           </div>
         {:else}
-          <!-- Dashboard Header & Actions (ユーザーデザイン完全統合) -->
-          <section class="mb-6 space-y-6" in:fade={{ duration: 150 }}>
-            <div class="flex flex-col md:flex-row md:items-end justify-between gap-4">
+          <!-- Dashboard Header & Actions -->
+          <section class="mb-lg" in:fade={{ duration: 150 }}>
+            <div
+              class="flex flex-col md:flex-row md:items-end justify-between gap-md mb-md"
+            >
               <div>
-                <p class="text-xs font-bold text-slate-400 uppercase tracking-widest mb-1">{currentPeriodLabel || '2026年 7月'}</p>
-                <h2 class="text-2xl font-black text-slate-800 tracking-tight">シフト管理・充足率</h2>
+                <p class="text-label-caps font-label-caps text-secondary mb-1">
+                  {currentPeriod.slice(0, 4)}年{Number(
+                    currentPeriod.slice(5, 7),
+                  )}月
+                </p>
+                <h2
+                  class="font-headline-lg-mobile text-headline-lg-mobile md:text-headline-lg md:font-headline-lg font-bold text-on-surface"
+                >
+                  シフト管理ボード
+                </h2>
               </div>
-              <div class="flex flex-col gap-2 w-full md:w-auto">
+              <div class="flex flex-col gap-xs w-full md:w-auto">
                 <button
                   type="button"
                   on:click={handleReGenerate}
                   disabled={isGenerating}
-                  class="bg-[#0058bc] text-white h-[50px] px-6 rounded-xl font-bold flex items-center justify-center gap-2 shadow-md hover:opacity-90 active:scale-95 transition-transform border-0 cursor-pointer"
+                  class="bg-primary text-on-primary h-[50px] px-lg rounded-xl font-bold flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-transform border-0 cursor-pointer"
                 >
-                  <span class="material-symbols-outlined {isGenerating ? 'animate-spin' : ''}">auto_awesome</span>
-                  {isGenerating ? "自動生成を実行中..." : "AIシフト自動生成を実行"}
+                  <span
+                    class="material-symbols-outlined {isGenerating
+                      ? 'animate-spin'
+                      : ''}">auto_awesome</span
+                  >
+                  {isGenerating
+                    ? "自動生成を実行中..."
+                    : "AIシフト自動生成を実行"}
                 </button>
-                <p class="text-[10px] text-slate-400 font-bold px-1 flex items-center gap-1">
-                  <span class="material-symbols-outlined text-xs">info</span>
+                <p
+                  class="text-[11px] text-on-secondary-container px-2 flex items-center gap-1"
+                >
+                  <span class="material-symbols-outlined text-[14px]">info</span
+                  >
                   ※店長（固定シフト）を除外した最適化ロジックを適用中
                 </p>
               </div>
             </div>
 
-            <!-- Alert Banner (動的バリデーション警告バインド) -->
+            <!-- Alert Banner (動的警告バインド) -->
             {#if firstAlertDate && firstAlertMsg}
               {@const alertDateParts = firstAlertDate.split("-")}
               {@const alertDateLabel = `${parseInt(alertDateParts[1])}月${parseInt(alertDateParts[2])}日`}
-              <div class="bg-red-50 text-red-800 p-4 rounded-xl flex items-center gap-3 border border-red-200/50 shadow-sm animate-pulse">
-                <span class="material-symbols-outlined text-red-600" style="font-variation-settings: 'FILL' 1;">warning</span>
-                <div class="flex-grow">
-                  <p class="font-bold text-xs">人員不足・違反アラート：{alertDateLabel} {firstAlertMsg}</p>
+              <div
+                class="bg-surface-container-high text-on-surface-variant p-md rounded-xl flex items-center gap-md border border-outline-variant/30 shadow-sm animate-pulse"
+              >
+                <span class="material-symbols-outlined text-primary">info</span>
+                <div class="flex-1 text-body-sm">
+                  現在、{alertDateLabel}の調整が必要です。{firstAlertMsg}
                 </div>
                 <button
                   type="button"
                   on:click={() => {
                     selectedEditDate = firstAlertDate;
                   }}
-                  class="text-[10px] font-black border border-red-200 bg-white hover:bg-red-50 text-red-700 px-3 py-1.5 rounded-full cursor-pointer transition-all border-solid"
+                  class="text-label-badge font-label-badge border border-outline px-3 py-1 rounded-full cursor-pointer hover:bg-slate-100 transition-colors"
                 >
-                  詳細を確認
+                  確認
                 </button>
               </div>
             {/if}
           </section>
 
-          <!-- Bento Grid Layout -->
-          <div class="grid grid-cols-1 lg:grid-cols-3 gap-6" in:fade={{ duration: 150 }}>
-            <!-- 右側: 充足率カレンダー & サイドバー (ユーザーデザイン完全統合) -->
-            <!-- Bento Grid Layout -->
-            <div class="lg:col-span-2 bg-white rounded-[24px] p-6 shadow-sm border border-slate-150">
-              <div class="flex items-center justify-between mb-6">
-                <div class="flex items-center gap-2">
-                  <button
-                    type="button"
-                    on:click={handlePrevPeriod}
-                    class="w-8 h-8 flex items-center justify-center rounded-full bg-slate-50 border border-slate-200 text-slate-500 hover:text-[#005bc1] transition-colors border-0 cursor-pointer"
+          <!-- Calendar Layout (全月カレンダーカード ＆ 設定サイドバーのレスポンシブ2カラム) -->
+          <div
+            class="grid grid-cols-1 lg:grid-cols-3 gap-6"
+            in:fade={{ duration: 150 }}
+          >
+            <!-- カレンダー (2カラム分) -->
+            <div class="lg:col-span-2 space-y-6">
+              <!-- Full Month Calendar Card -->
+              <div
+                class="bg-surface-container-lowest rounded-[24px] p-md shadow-soft border border-slate-100 overflow-hidden"
+              >
+                <div class="flex items-center justify-between mb-lg">
+                  <div class="flex items-center gap-xs">
+                    <button
+                      type="button"
+                      on:click={handlePrevPeriod}
+                      class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-container transition-colors border-0 bg-transparent cursor-pointer"
+                    >
+                      <span class="material-symbols-outlined text-body-lg"
+                        >chevron_left</span
+                      >
+                    </button>
+                    <h3
+                      class="font-headline-md text-headline-md font-bold text-on-surface"
+                    >
+                      {Number(currentPeriod.slice(5, 7))}月
+                    </h3>
+                    <button
+                      type="button"
+                      on:click={handleNextPeriod}
+                      class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-container transition-colors border-0 bg-transparent cursor-pointer"
+                    >
+                      <span class="material-symbols-outlined text-body-lg"
+                        >chevron_right</span
+                      >
+                    </button>
+                  </div>
+                  <div
+                    class="bg-surface-container flex p-1 rounded-full text-xs font-bold text-slate-700"
                   >
-                    <span class="material-symbols-outlined text-sm">chevron_left</span>
-                  </button>
-                  <h3 class="text-base font-black text-slate-800 tracking-tight">{currentPeriodLabel || '7月'}</h3>
-                  <button
-                    type="button"
-                    on:click={handleNextPeriod}
-                    class="w-8 h-8 flex items-center justify-center rounded-full bg-slate-50 border border-slate-200 text-slate-500 hover:text-[#005bc1] transition-colors border-0 cursor-pointer"
-                  >
-                    <span class="material-symbols-outlined text-sm">chevron_right</span>
-                  </button>
-                </div>
-                <div class="bg-slate-100 flex p-1 rounded-full text-[10px] font-bold">
-                  <span class="px-4 py-1 rounded-full bg-white shadow-sm text-slate-800">月間</span>
-                  <span class="px-4 py-1 rounded-full text-slate-400">週間</span>
-                </div>
-              </div>
-
-              <!-- 曜日のヘッダー -->
-              <div class="calendar-grid border-b border-slate-100 mb-2">
-                {#each CALENDAR_HEADERS as h}
-                  <div class="text-center py-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">{h}</div>
-                {/each}
-              </div>
-
-              <!-- 日付グリッド (充足率ゲージ ＆ %充足インジケーター統合) -->
-              <div class="calendar-grid gap-2">
-                {#each GRID_CELLS as d}
-                  {@const isRegularClosed = d.isRegularClosed}
-                  {@const isClosed = isRegularClosed || specialHolidays.includes(d.dateStr)}
-                  {@const dayShifts = shifts.filter(s => s.date === d.dateStr).filter(s => {
-                    if (shiftStatus === "published") return true;
-                    const m = members.find(mem => mem.id === s.member_id);
-                    return m ? m.isActive !== false : true;
-                  })}
-                  
-                  {@const isDeficit = !validationResults[d.dateStr]?.isValid}
-                  {@const isToday = (() => {
-                    const todayStr = new Date().toISOString().split('T')[0];
-                    return d.dateStr === todayStr;
-                  })()}
-
-                  <!-- 充足率計算 (平日アサイン目標4人、土日6人として算出) -->
-                  {@const targetCount = d.isWeekend ? 6 : 4}
-                  {@const fillRate = isClosed ? 0 : Math.min(100, Math.round((dayShifts.length / targetCount) * 100))}
-
-                  <button
-                    type="button"
-                    on:click={() => {
-                      if (d.isOtherMonth) return;
-                      selectedEditDate = d.dateStr;
-                    }}
-                    disabled={d.isOtherMonth}
-                    class="h-24 p-2 rounded-xl border border-solid transition-all cursor-pointer text-left bg-white outline-none flex flex-col justify-between
-                    {d.isOtherMonth ? 'opacity-0 pointer-events-none' : 'border-slate-150 hover:border-[#0058bc]/50'}
-                    {isToday ? 'bg-[#0058bc]/5 border-[#0058bc]/20' : ''}"
-                  >
-                    <div class="flex justify-between items-start w-full">
-                      <span class="text-xs font-extrabold {isToday ? 'text-[#0058bc]' : 'text-slate-800'}">{d.dayNum}</span>
-                      {#if !d.isOtherMonth && !isClosed && isDeficit}
-                        <div class="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></div>
-                      {/if}
-                    </div>
-
-                    <div class="w-full space-y-1">
-                      {#if isClosed}
-                        <p class="text-[9px] text-slate-400 font-bold text-center py-1">
-                          {isRegularClosed ? "定休日" : "臨時休業"}
-                        </p>
-                      {:else}
-                        <div class="h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
-                          <div
-                            class="h-full rounded-full transition-all duration-300
-                            {fillRate < 75 ? 'bg-red-500' : fillRate < 90 ? 'bg-amber-500' : 'bg-emerald-500'}"
-                            style="width: {fillRate}%"
-                          ></div>
-                        </div>
-                        <p class="text-[9px] text-slate-400 font-bold text-center">{fillRate}% 充足</p>
-                      {/if}
-                    </div>
-                  </button>
-                {/each}
-              </div>
-            </div>
-
-            <!-- 右側: ステータス ＆ 今日の出勤スタッフ (1/3幅) -->
-            <div class="flex flex-col gap-6">
-              
-              <!-- Status Card -->
-              <div class="bg-white rounded-[24px] p-6 shadow-sm border border-slate-150 flex flex-col justify-between">
-                <div>
-                  <h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">ステータス</h3>
-                  <div class="space-y-4">
-                    <div class="flex justify-between items-center border-b border-slate-50 pb-2">
-                      <span class="text-xs font-semibold text-slate-600">未提出メンバー</span>
-                      <span class="bg-[#0058bc]/10 text-[#0058bc] px-2.5 py-0.5 rounded-full text-[10px] font-bold">
-                        {unsubmittedCount}名
-                      </span>
-                    </div>
-                    <div class="flex justify-between items-center border-b border-slate-50 pb-2">
-                      <span class="text-xs font-semibold text-slate-600">欠員・違反アラート</span>
-                      <span class="bg-red-50 text-red-600 px-2.5 py-0.5 rounded-full text-[10px] font-bold">
-                        {Object.keys(validationResults).filter(date => !validationResults[date].isValid).length}件
-                      </span>
-                    </div>
-                    <div class="flex justify-between items-center pb-2">
-                      <span class="text-xs font-semibold text-slate-600">平均充足率</span>
-                      <span class="text-lg font-black text-emerald-600">{averageFillRate}%</span>
-                    </div>
+                    <button
+                      type="button"
+                      class="px-4 py-1.5 rounded-full bg-white shadow-sm font-label-badge text-label-badge border-0 cursor-pointer"
+                      >月間</button
+                    >
+                    <button
+                      type="button"
+                      class="px-4 py-1.5 rounded-full text-secondary font-label-badge text-label-badge border-0 bg-transparent cursor-pointer"
+                      >週間</button
+                    >
                   </div>
                 </div>
 
-                <div class="mt-6 space-y-2">
+                <!-- Calendar Header -->
+                <div class="grid grid-cols-7 calendar-grid border-b border-surface-variant mb-2">
+                  {#each CALENDAR_HEADERS as h}
+                    <div
+                      class="text-center py-2 text-label-caps font-label-caps
+                      {h === '土'
+                        ? 'text-primary'
+                        : h === '日'
+                          ? 'text-error'
+                          : 'text-secondary'}"
+                    >
+                      {h}
+                    </div>
+                  {/each}
+                </div>
+
+                <!-- Calendar Body (GRID_CELLS ループ) -->
+                <div class="grid grid-cols-7 calendar-grid gap-1 md:gap-2">
+                  {#each GRID_CELLS as d}
+                    {@const isRegularClosed = d.isRegularClosed}
+                    {@const isClosed =
+                      isRegularClosed || specialHolidays.includes(d.dateStr)}
+                    {@const dayShifts = shifts
+                      .filter((s) => s.date === d.dateStr)
+                      .filter((s) => {
+                        if (shiftStatus === "published") return true;
+                        const m = members.find((mem) => mem.id === s.member_id);
+                        return m ? m.isActive !== false : true;
+                      })}
+
+                    {@const isDeficit = !validationResults[d.dateStr]?.isValid}
+                    {@const isToday = (() => {
+                      const todayStr = new Date().toISOString().split("T")[0];
+                      return d.dateStr === todayStr;
+                    })()}
+
+                    <button
+                      type="button"
+                      on:click={() => {
+                        if (d.isOtherMonth) return;
+                        selectedEditDate = d.dateStr;
+                      }}
+                      disabled={d.isOtherMonth}
+                      class="min-h-[80px] md:min-h-[120px] p-1.5 rounded-lg text-left outline-none transition-all flex flex-col justify-between cursor-pointer border border-solid
+                      {d.isOtherMonth
+                        ? 'bg-surface-container-low opacity-40 pointer-events-none border-transparent'
+                        : ''}
+                      {!d.isOtherMonth && isToday
+                        ? 'border-2 border-primary bg-primary-container/10 shadow-inner'
+                        : ''}
+                      {!d.isOtherMonth && !isToday && isDeficit
+                        ? 'border-error bg-error-container/20 border'
+                        : ''}
+                      {!d.isOtherMonth && !isToday && !isDeficit
+                        ? 'border-surface-variant/40 bg-white hover:border-[#0058bc]/50'
+                        : ''}"
+                    >
+                      <div
+                        class="flex justify-between items-start mb-1 text-label-badge w-full"
+                      >
+                        <span
+                          class={isToday
+                            ? "font-bold text-primary"
+                            : isClosed
+                              ? "text-slate-400 font-medium"
+                              : "text-slate-700 font-medium"}
+                        >
+                          {d.dayNum}
+                        </span>
+                        {#if !d.isOtherMonth && !isClosed && isDeficit}
+                          <span class="text-[8px] font-bold text-error"
+                            >警告</span
+                          >
+                        {/if}
+                      </div>
+
+                      {#if isClosed}
+                        <div
+                          class="text-[9px] text-slate-400 font-bold text-center py-2 w-full"
+                        >
+                          {isRegularClosed ? "定休日" : "臨時休業"}
+                        </div>
+                      {:else}
+                        <div class="flex flex-wrap gap-1 w-full">
+                          {#each dayShifts as s}
+                            {@const colorClass =
+                              s.role === "kitchen"
+                                ? "bg-primary-container/10 text-primary"
+                                : "bg-tertiary-container/10 text-tertiary"}
+                            <span
+                              class="w-5 h-5 flex items-center justify-center {colorClass} text-[10px] font-bold rounded-sm"
+                              title={s.member_name}
+                            >
+                              {getMemberInitial(s.member_name, members)}
+                            </span>
+                          {/each}
+                        </div>
+                      {/if}
+                    </button>
+                  {/each}
+                </div>
+              </div>
+            </div>
+
+            <!-- 右側: 充足率サマリー・設定サイドバー (1カラム分) -->
+            <div class="flex flex-col gap-6">
+              <!-- Status / Summary Card -->
+              <div
+                class="bg-white rounded-[20px] p-6 shadow-soft border border-slate-100 space-y-4"
+              >
+                <h3
+                  class="font-label-caps text-label-caps text-secondary mb-2 uppercase tracking-wider"
+                >
+                  充足率サマリー
+                </h3>
+
+                <div class="space-y-3.5">
+                  <div
+                    class="flex justify-between items-center border-b border-slate-50 pb-2"
+                  >
+                    <span class="text-xs font-semibold text-slate-600"
+                      >未提出メンバー</span
+                    >
+                    <span
+                      class="bg-primary/10 text-primary px-2.5 py-0.5 rounded-full text-[10px] font-bold"
+                    >
+                      {unsubmittedCount}名
+                    </span>
+                  </div>
+                  <div
+                    class="flex justify-between items-center border-b border-slate-50 pb-2"
+                  >
+                    <span class="text-xs font-semibold text-slate-600"
+                      >欠員・違反アラート</span
+                    >
+                    <span
+                      class="bg-error-container/20 text-error px-2.5 py-0.5 rounded-full text-[10px] font-bold"
+                    >
+                      {Object.keys(validationResults).filter(
+                        (date) => !validationResults[date].isValid,
+                      ).length}件
+                    </span>
+                  </div>
+                  <div class="flex justify-between items-center pb-2">
+                    <span class="text-xs font-semibold text-slate-600"
+                      >平均充足率</span
+                    >
+                    <span class="text-lg font-black text-emerald-600"
+                      >{averageFillRate}%</span
+                    >
+                  </div>
+                </div>
+
+                <!-- シフト公開・下書き戻しボタン -->
+                <div class="pt-4 border-t border-slate-100">
                   {#if shiftStatus === "published"}
                     <button
                       type="button"
                       on:click={() => revertShiftsToDraft(currentPeriod)}
-                      class="w-full bg-slate-50 hover:bg-slate-100 text-slate-500 border border-slate-200 h-[50px] rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-all border-solid"
+                      class="w-full bg-slate-50 hover:bg-slate-100 text-slate-500 border border-slate-200 border-solid h-[50px] rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-[0.98]"
                     >
-                      <span class="material-symbols-outlined text-sm">edit</span>
+                      <span class="material-symbols-outlined text-sm">edit</span
+                      >
                       シフトを下書きに戻す
                     </button>
                   {:else}
                     <button
                       type="button"
                       on:click={() => publishShifts(currentPeriod)}
-                      class="w-full bg-[#0058bc] text-white h-[50px] rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-md hover:opacity-90 active:scale-95 transition-transform border-0 cursor-pointer"
+                      class="w-full bg-primary text-on-primary h-[50px] rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-md hover:opacity-90 active:scale-[0.98] border-0 cursor-pointer transition-transform"
                     >
-                      <span class="material-symbols-outlined text-sm">publish</span>
+                      <span class="material-symbols-outlined text-sm"
+                        >publish</span
+                      >
                       シフトを確定して公開
                     </button>
                   {/if}
                 </div>
               </div>
 
-              <!-- Staff Info (今日の出勤スタッフ) -->
-              <div class="bg-white rounded-[24px] p-6 shadow-sm border border-slate-150">
-                <h3 class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4">今日の出勤スタッフ</h3>
-                
-                <div class="space-y-4 max-h-[250px] overflow-y-auto pr-1 hide-scrollbar">
-                  {#each shifts.filter(s => s.date === new Date().toISOString().split('T')[0]) as s}
-                    <div class="flex items-center justify-between">
-                      <div class="flex items-center gap-3">
-                        <div class="w-8 h-8 rounded-lg bg-[#0058bc]/10 text-[#0058bc] flex items-center justify-center font-bold text-xs border border-[#0058bc]/5">
-                          {getMemberInitial(s.member_name, members)}
-                        </div>
-                        <div>
-                          <p class="text-xs font-bold text-slate-800">{s.member_name}</p>
-                          <p class="text-[10px] text-slate-400 font-semibold mt-0.5">
-                            {#if s.role === 'kitchen'}🍳厨房{:else}🛎ホール{/if} • {s.start_time || '17:00'}〜
-                          </p>
-                        </div>
-                      </div>
-                      <span class="text-emerald-500 material-symbols-outlined text-base" style="font-variation-settings: 'FILL' 1;">check_circle</span>
-                    </div>
-                  {:else}
-                    <p class="text-xs text-slate-400 text-center py-6 font-medium">今日の出勤予定はありません</p>
-                  {/each}
-                </div>
-                
-                <!-- シフト表タブへ切り替えるボタン -->
-                <button
-                  type="button"
-                  on:click={() => {
-                    activeTab = "calendar";
-                  }}
-                  class="w-full text-center text-[#0058bc] hover:underline font-bold text-xs mt-4 border-0 bg-transparent cursor-pointer"
-                >
-                  全体のシフト表を表示
-                </button>
-              </div>
-
-              <!-- 一括休業設定 ＆ 提出締め切り設定パネル (PC/タブレットの利便性のためサイド配置) -->
-              <div class="bg-white p-6 rounded-[24px] border border-slate-150 shadow-sm space-y-6">
+              <!-- 曜日別一括休業 ＆ 提出締め切り設定パネル -->
+              <div
+                class="bg-white p-6 rounded-[20px] border border-slate-100 shadow-soft space-y-6"
+              >
                 <!-- 曜日別一括休業 -->
                 <div class="space-y-3">
-                  <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest block">曜日別 一括休業設定</span>
+                  <span
+                    class="text-[10px] font-bold text-secondary uppercase tracking-wider block"
+                    >曜日別 一括休業設定</span
+                  >
                   <div class="grid grid-cols-7 gap-1">
                     {#each ["月", "火", "水", "木", "金", "土", "日"] as w}
                       <button
                         type="button"
                         on:click={() => {
                           if (w === "水") {
-                            triggerToast("⚠️ 水曜日は基本定休日のため、解除はできません。");
+                            triggerToast(
+                              "⚠️ 水曜日は基本定休日のため、解除はできません。",
+                            );
                           } else {
                             selectedBulkClosedDay = w;
                           }
                         }}
                         class="py-2 text-[10px] font-bold rounded-lg border text-center transition-all cursor-pointer border-solid
-                        {w === '水' ? 'bg-red-50 border-red-200 text-red-600' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}"
+                        {w === '水'
+                          ? 'bg-red-50 border-red-200 text-red-600'
+                          : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}"
                       >
                         {w}
                       </button>
@@ -3242,7 +3688,10 @@
 
                 <!-- 締め切り設定 -->
                 <div class="space-y-3 pt-4 border-t border-slate-100">
-                  <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest block">提出締め切り日時</span>
+                  <span
+                    class="text-[10px] font-bold text-secondary uppercase tracking-wider block"
+                    >提出締め切り日時</span
+                  >
                   <div class="flex flex-col gap-2">
                     <input
                       type="datetime-local"
@@ -3259,146 +3708,248 @@
                   </div>
                 </div>
               </div>
-
-              <!-- 籍・退職管理 ＆ システムリセット -->
-              <div class="bg-white p-6 rounded-[24px] border border-slate-150 shadow-sm space-y-4">
-                <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest block">スタッフ・在籍管理</span>
-                <button
-                  type="button"
-                  on:click={() => {
-                    const el = document.getElementById("staff-membership-panel");
-                    if (el) el.scrollIntoView({ behavior: 'smooth' });
-                    triggerToast("👇 画面下の「スタッフ籍・退職管理」をご確認ください。");
-                  }}
-                  class="w-full py-3 bg-slate-50 hover:bg-slate-100 border border-slate-200 font-bold text-xs text-slate-600 rounded-xl cursor-pointer transition-all border-solid flex items-center justify-center gap-1"
-                >
-                  <span class="material-symbols-outlined text-sm">group</span>
-                  スタッフ籍・退職管理へ
-                </button>
-              </div>
-
             </div>
-
           </div>
 
-          <!-- スタッフ籍・退職管理 & システムリセット (画面下部配置) -->
-          <div id="staff-membership-panel" class="space-y-6 mt-8">
-            <!-- メンバー管理 (退職・復職) -->
-            <div class="bg-white p-6 rounded-[24px] border border-slate-150 shadow-sm space-y-4">
-              <div>
-                <h3 class="text-sm font-bold text-slate-800 tracking-tight">スタッフ籍・退職管理</h3>
-                <p class="text-xs text-slate-400 mt-0.5 font-medium">スタッフの在籍状況（アクティブ/退職）を管理します。</p>
-              </div>
-
-              <div class="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 border-t border-slate-100">
-                <!-- 在籍中のスタッフ -->
-                <div class="space-y-3">
-                  <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest block">
-                    在籍中のスタッフ ({members.filter(m => m.isActive !== false).length}名)
-                  </span>
-                  
-                  <div class="space-y-2.5 max-h-[250px] overflow-y-auto pr-1">
-                    {#each members.filter(m => m.isActive !== false) as m}
-                      <div class="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200/50">
-                        <button
-                          type="button"
-                          on:click={() => openWishPreviewModal(m)}
-                          class="flex items-center gap-2.5 min-w-0 flex-1 text-left bg-transparent border-0 cursor-pointer outline-none hover:opacity-85 transition-all p-0"
-                          title={`${m.name}さんの希望カレンダーを表示`}
-                        >
-                          <div class="w-8 h-8 rounded-lg bg-slate-200/70 flex items-center justify-center text-xs font-extrabold text-slate-700 shrink-0 border border-slate-300/40">
-                            {m.initialChar || m.name.charAt(0)}
-                          </div>
-                          <span class="text-sm select-none">{m.emoji}</span>
-                          <div class="truncate">
-                            <p class="text-xs font-bold text-slate-800 truncate hover:text-[#0071e3] transition-colors">{m.name} 🔍</p>
-                            <p class="text-[9px] text-slate-400 font-medium">
-                              {#if m.roles?.includes('kitchen') && m.roles?.includes('hall')}
-                                🍳厨房 / 🛎ホール
-                              {:else if m.roles?.includes('kitchen')}
-                                🍳キッチン
-                              {:else}
-                                🛎ホール
-                              {/if}
-                            </p>
-                          </div>
-                        </button>
-                        <div class="flex items-center gap-1.5 shrink-0">
-                          <button
-                            type="button"
-                            on:click={() => toggleAdminPrivilege(m.id, !m.isAdmin)}
-                            class="text-[9px] font-extrabold px-2 py-1.5 rounded-lg border transition-all duration-150 cursor-pointer border-solid
-                            {m.isAdmin ? 'bg-amber-500 hover:bg-amber-600 border-amber-600 text-white shadow-sm' : 'bg-slate-100 hover:bg-slate-200 border-slate-200 text-slate-600'}"
-                          >
-                            {m.isAdmin ? "👑 管理者" : "一般"}
-                          </button>
-                          <button
-                            type="button"
-                            on:click={() => toggleMemberActive(m.id, false)}
-                            class="text-[9px] font-bold text-rose-500 hover:text-rose-600 hover:bg-rose-50 px-2 py-1.5 rounded-lg border border-solid border-rose-100 hover:border-rose-200 transition-all duration-150 cursor-pointer"
-                          >
-                            籍を外す
-                          </button>
-                        </div>
-                      </div>
-                    {/each}
-                  </div>
-                </div>
-
-                <!-- 退職メンバー -->
-                <div class="space-y-3 border-t md:border-t-0 md:border-l border-slate-100 pt-4 md:pt-0 md:pl-6">
-                  <span class="text-[10px] font-black text-slate-400 uppercase tracking-widest block">
-                    退職メンバーの管理 ({members.filter(m => m.isActive === false).length}名)
-                  </span>
-                  
-                  <div class="space-y-2.5 max-h-[250px] overflow-y-auto pr-1">
-                    {#if members.filter(m => m.isActive === false).length === 0}
-                      <p class="text-[10px] text-slate-400 text-center py-8 font-semibold">退職処理されたメンバーはいません。</p>
-                    {:else}
-                      {#each members.filter(m => m.isActive === false) as m}
-                        <div class="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200/50 opacity-75 hover:opacity-100 transition-all">
-                          <div class="flex items-center gap-2 min-w-0">
-                            <span class="text-sm select-none">{m.emoji}</span>
-                            <div class="truncate">
-                              <p class="text-xs font-bold text-slate-800 truncate line-through">{m.name}</p>
-                              <p class="text-[9px] text-slate-400 font-medium">退職済み</p>
-                            </div>
-                          </div>
-                          <button
-                            type="button"
-                            on:click={() => toggleMemberActive(m.id, true)}
-                            class="shrink-0 text-[10px] font-bold text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 px-2.5 py-1.5 rounded-lg border border-solid border-emerald-100 hover:border-emerald-200 transition-all duration-150 cursor-pointer"
-                          >
-                            有効に戻す
-                          </button>
-                        </div>
-                      {/each}
-                    {/if}
-                  </div>
-                </div>
-              </div>
+          <!-- スタッフ籍・退職管理リスト (Google Stitch タブ & 切り替え) -->
+          <div
+            class="bg-surface-container-lowest rounded-[20px] shadow-soft overflow-hidden border border-slate-100 mt-6"
+            in:fade={{ duration: 150 }}
+          >
+            <div class="flex border-b border-surface-variant">
+              <button
+                type="button"
+                on:click={() => {
+                  managerStaffTab = "active";
+                }}
+                class="flex-1 py-3 text-sm font-bold border-0 cursor-pointer transition-all
+                {managerStaffTab === 'active'
+                  ? 'bg-white text-primary border-b-2 border-b-primary'
+                  : 'bg-slate-50/50 text-secondary hover:bg-slate-100/50'}"
+              >
+                現在いるスタッフ
+              </button>
+              <button
+                type="button"
+                on:click={() => {
+                  managerStaffTab = "retired";
+                }}
+                class="flex-1 py-3 text-sm font-bold border-0 cursor-pointer transition-all
+                {managerStaffTab === 'retired'
+                  ? 'bg-white text-primary border-b-2 border-b-primary'
+                  : 'bg-slate-50/50 text-secondary hover:bg-slate-100/50'}"
+              >
+                引退したスタッフ
+              </button>
             </div>
 
-            <!-- システム・データ管理 -->
-            <div class="bg-white p-6 rounded-[24px] border border-red-100 shadow-sm space-y-4">
-              <div>
-                <h3 class="text-sm font-bold text-red-600 tracking-tight flex items-center gap-1.5 select-none">
-                  ⚠️ システム管理者機能 (データリセット)
-                </h3>
-                <p class="text-xs text-slate-400 mt-0.5 font-medium leading-relaxed">
-                  データベース（全スタッフ籍および全希望シフト）を完全にクリーンリセットします。過去のデータはすべて消去され、デフォルトの管理者（パスコード: 8888）のみが作成されます。
-                </p>
-              </div>
+            <!-- Active Staff Tab (現在いるスタッフ) -->
+            {#if managerStaffTab === "active"}
+              <div class="p-md space-y-sm">
+                {#each members.filter((m) => m.isActive !== false) as m}
+                  <div
+                    class="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 rounded-xl hover:bg-surface-container-low transition-colors border border-transparent border-b-slate-100/60 pb-4"
+                  >
+                    <button
+                      type="button"
+                      on:click={() => openWishPreviewModal(m)}
+                      class="flex items-center gap-3 bg-transparent border-0 cursor-pointer outline-none hover:opacity-85 text-left p-0 min-w-0 w-full md:w-auto"
+                      title={`${m.name}さんの希望カレンダーを表示`}
+                    >
+                      <div
+                        class="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold text-sm shrink-0"
+                      >
+                        {m.initialChar || m.name.charAt(0)}
+                      </div>
+                      <div class="truncate">
+                        <p
+                          class="text-sm font-semibold text-slate-800 hover:text-primary truncate"
+                        >
+                          {m.name} 🔍
+                        </p>
+                        <p class="text-[12px] text-on-surface-variant flex items-center gap-1.5">
+                          {#if m.roles?.includes("kitchen") && m.roles?.includes("hall")}
+                            🍳厨房 / 🛎ホール
+                          {:else if m.roles?.includes("kitchen")}
+                            🍳キッチン
+                          {:else}
+                            🛎ホール
+                          {/if}
+                          {#if m.isTrainee}
+                            <span class="bg-amber-100 text-amber-800 text-[9px] px-1.5 py-0.2 rounded font-black select-none">🔰 研修中</span>
+                          {/if}
+                        </p>
+                      </div>
+                    </button>
+                    <div class="flex flex-wrap items-center gap-3 w-full md:w-auto justify-start md:justify-end pt-2 md:pt-0 border-t border-dashed border-slate-100 md:border-t-0">
+                      <!-- 役割(担当)選択セレクト -->
+                      <div class="flex flex-col items-start gap-1">
+                        <span class="text-[9px] font-bold text-slate-400 uppercase tracking-wider">担当役割</span>
+                        <select
+                          on:change={(e) => {
+                            const select = /** @type {HTMLSelectElement} */ (e.target);
+                            const val = select.value;
+                            const newRoles = val === "both" ? ["kitchen", "hall"] : [val];
+                            updateMemberRoles(m.id, newRoles);
+                          }}
+                          class="bg-slate-50 border border-slate-200 text-[10px] font-bold rounded-lg px-2 py-1 text-slate-700 outline-none focus:border-[#0071e3] transition-colors cursor-pointer"
+                        >
+                          <option value="hall" selected={m.roles?.includes("hall") && !m.roles?.includes("kitchen")}>🛎 ホール</option>
+                          <option value="kitchen" selected={m.roles?.includes("kitchen") && !m.roles?.includes("hall")}>🍳 キッチン</option>
+                          <option value="both" selected={m.roles?.includes("kitchen") && m.roles?.includes("hall")}>🍳🛎 両方</option>
+                        </select>
+                      </div>
 
-              <div class="pt-2">
-                <button
-                  type="button"
-                  on:click={handleDatabaseReset}
-                  class="py-3 px-5 transition-all text-xs font-black rounded-2xl cursor-pointer border border-solid bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-600 shadow-sm active:scale-95"
-                >
-                  🚨 データベースを完全にリセットする
-                </button>
+                      <!-- 研修中(トレーニング)トグルボタン -->
+                      <div class="flex flex-col items-start gap-1">
+                        <span class="text-[9px] font-bold text-slate-400 uppercase tracking-wider">研修状況</span>
+                        <button
+                          type="button"
+                          on:click={() => {
+                            const nextStatus = m.isTrainee ? "regular" : "trainee";
+                            updateMemberStatus(m.id, nextStatus);
+                          }}
+                          class="text-[10px] font-extrabold px-2.5 py-1 rounded-lg border border-solid transition-all duration-150 cursor-pointer h-[28px] flex items-center justify-center
+                          {m.isTrainee
+                            ? 'bg-amber-100 border-amber-300 text-amber-800 hover:bg-amber-200'
+                            : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'}"
+                        >
+                          {m.isTrainee ? "🔰 研修中" : "一般"}
+                        </button>
+                      </div>
+
+                      <!-- 管理者権限 -->
+                      <div class="flex flex-col items-start gap-1">
+                        <span class="text-[9px] font-bold text-slate-400 uppercase tracking-wider">権限</span>
+                        <button
+                          type="button"
+                          on:click={() => toggleAdminPrivilege(m.id, !m.isAdmin)}
+                          class="text-[10px] font-extrabold px-2.5 py-1.5 rounded-lg border border-solid transition-all duration-150 cursor-pointer h-[28px] flex items-center justify-center
+                          {m.isAdmin
+                            ? 'bg-amber-500 hover:bg-amber-600 border-amber-600 text-white'
+                            : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'}"
+                        >
+                          {m.isAdmin ? "👑 管理者" : "一般"}
+                        </button>
+                      </div>
+
+                      <!-- 引退にするボタン -->
+                      <div class="flex flex-col items-start gap-1">
+                        <span class="text-[9px] md:text-transparent select-none hidden md:inline">-</span>
+                        <button
+                          type="button"
+                          on:click={() => toggleMemberActive(m.id, false)}
+                          class="text-error border border-error/30 hover:bg-error/10 px-3 py-1.5 rounded-full text-label-caps font-label-caps transition-colors cursor-pointer h-[28px] flex items-center justify-center"
+                        >
+                          引退にする
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                {:else}
+                  <p
+                    class="text-xs text-slate-400 text-center py-6 font-medium"
+                  >
+                    現在いるスタッフはいません
+                  </p>
+                {/each}
               </div>
+            {/if}
+
+            <!-- Retired Staff Tab (引退したスタッフ) -->
+            {#if managerStaffTab === "retired"}
+              <div class="p-md space-y-sm">
+                {#each members.filter((m) => m.isActive === false) as m}
+                  <div
+                    class="flex items-center justify-between gap-sm p-2 rounded-lg bg-surface-container-low/30 border border-slate-100 pb-3"
+                  >
+                    <div class="flex items-center gap-sm opacity-60 min-w-0">
+                      <div
+                        class="w-10 h-10 rounded-xl bg-slate-200 flex items-center justify-center text-secondary font-bold text-sm shrink-0"
+                      >
+                        {m.initialChar || m.name.charAt(0)}
+                      </div>
+                      <div class="truncate">
+                        <p
+                          class="text-body-sm font-semibold text-secondary line-through truncate"
+                        >
+                          {m.name}
+                        </p>
+                        <p class="text-[12px] text-secondary/70">
+                          {#if m.roles?.includes("kitchen") && m.roles?.includes("hall")}
+                            🍳厨房 / 🛎ホール
+                          {:else if m.roles?.includes("kitchen")}
+                            🍳キッチン
+                          {:else}
+                            🛎ホール
+                          {/if}
+                        </p>
+                      </div>
+                    </div>
+                    <div class="flex gap-2 shrink-0">
+                      <button
+                        type="button"
+                        on:click={() => toggleMemberActive(m.id, true)}
+                        class="text-primary border border-primary/30 hover:bg-primary/10 px-3 py-1 rounded-full text-label-caps font-label-caps transition-colors cursor-pointer"
+                      >
+                        現在の方に戻す
+                      </button>
+                      <button
+                        type="button"
+                        on:click={() => {
+                          if (
+                            confirm(
+                              `${m.name}さんのデータを完全に削除しますか？`,
+                            )
+                          ) {
+                            // 既存仕様
+                          }
+                        }}
+                        class="text-error hover:bg-error/10 p-1.5 rounded-full transition-colors flex items-center justify-center border-0 bg-transparent cursor-pointer"
+                      >
+                        <span class="material-symbols-outlined text-[18px]"
+                          >delete</span
+                        >
+                      </button>
+                    </div>
+                  </div>
+                {:else}
+                  <p
+                    class="text-xs text-slate-400 text-center py-8 font-semibold"
+                  >
+                    引退処理されたメンバーはいません
+                  </p>
+                {/each}
+              </div>
+            {/if}
+          </div>
+
+          <!-- システム管理者機能 (データリセット) -->
+          <div
+            class="bg-white p-6 rounded-[20px] border border-red-100 shadow-soft space-y-4 mt-6"
+          >
+            <div>
+              <h3
+                class="text-sm font-bold text-red-600 tracking-tight flex items-center gap-1.5 select-none"
+              >
+                ⚠️ システム管理者機能 (データリセット)
+              </h3>
+              <p
+                class="text-xs text-slate-400 mt-0.5 font-medium leading-relaxed"
+              >
+                データベース（全スタッフ籍および全希望シフト）を完全にクリーンリセットします。過去のデータはすべて消去され、デフォルトの管理者（パスコード:
+                8888）のみが作成されます。
+              </p>
+            </div>
+
+            <div class="pt-2">
+              <button
+                type="button"
+                on:click={handleDatabaseReset}
+                class="py-3 px-5 transition-all text-xs font-black rounded-2xl cursor-pointer border border-solid bg-rose-50 hover:bg-rose-100 border-rose-200 text-rose-600 shadow-sm active:scale-95"
+              >
+                🚨 データベースを完全にリセットする
+              </button>
             </div>
           </div>
         {/if}
@@ -3407,13 +3958,26 @@
   </main>
 
   <!-- Footer (Google Stitch デザイン完全統合) -->
-  <footer class="w-full py-8 border-t border-slate-200/50 flex flex-col items-center gap-4 bg-slate-50 mt-auto">
+  <footer
+    class="w-full py-8 border-t border-slate-200/50 flex flex-col items-center gap-4 bg-slate-50 mt-auto"
+  >
     <div class="flex gap-6">
-      <a class="font-bold text-xs text-slate-500 hover:text-[#0058bc] transition-colors no-underline" href="#/">利用規約</a>
-      <a class="font-bold text-xs text-slate-500 hover:text-[#0058bc] transition-colors no-underline" href="#/">プライバシーポリシー</a>
-      <a class="font-bold text-xs text-slate-500 hover:text-[#0058bc] transition-colors no-underline" href="#/">ヘルプ</a>
+      <a
+        class="font-bold text-xs text-slate-500 hover:text-[#0058bc] transition-colors no-underline"
+        href="#/">利用規約</a
+      >
+      <a
+        class="font-bold text-xs text-slate-500 hover:text-[#0058bc] transition-colors no-underline"
+        href="#/">プライバシーポリシー</a
+      >
+      <a
+        class="font-bold text-xs text-slate-500 hover:text-[#0058bc] transition-colors no-underline"
+        href="#/">ヘルプ</a
+      >
     </div>
-    <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">© 2024 桃牛苑 Operations Inc.</p>
+    <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+      © 2024 桃牛苑 Operations Inc.
+    </p>
   </footer>
 
   <!-- モーダル: 曜日一括設定 -->
@@ -3630,7 +4194,7 @@
                   class="w-full bg-slate-50 border border-slate-200 text-xs font-semibold rounded-xl px-3 py-2.5 text-slate-700 focus:outline-none focus:border-[#0071e3]"
                 >
                   <option value="">＋ メンバーの選択</option>
-                  {#each members.filter(m => m.isActive !== false) as m}
+                  {#each members.filter((m) => m.isActive !== false) as m}
                     {#each m.roles || [m.role] as r}
                       <option value="{m.id}:{r}"
                         >{m.emoji}
@@ -3737,16 +4301,23 @@
         on:click|stopPropagation
       >
         <!-- Header -->
-        <div class="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+        <div
+          class="px-6 py-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50"
+        >
           <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-xl bg-[#0071e3]/10 flex items-center justify-center text-[#0071e3] font-bold border border-[#0071e3]/20 select-none">
-              {selectedModalMember.initialChar || selectedModalMember.name.charAt(0)}
+            <div
+              class="w-10 h-10 rounded-xl bg-[#0071e3]/10 flex items-center justify-center text-[#0071e3] font-bold border border-[#0071e3]/20 select-none"
+            >
+              {selectedModalMember.initialChar ||
+                selectedModalMember.name.charAt(0)}
             </div>
             <div class="text-left">
               <h3 class="text-sm font-black text-slate-800 tracking-tight">
                 {selectedModalMember.name} さんの希望シフト状況
               </h3>
-              <p class="text-[10px] text-slate-400 font-bold mt-0.5 uppercase tracking-wider">
+              <p
+                class="text-[10px] text-slate-400 font-bold mt-0.5 uppercase tracking-wider"
+              >
                 対象期間: {currentPeriodLabel}
               </p>
             </div>
@@ -3763,14 +4334,20 @@
         <!-- Body -->
         <div class="p-6 space-y-6">
           <!-- Submission summary status -->
-          <div class="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 text-xs font-semibold">
+          <div
+            class="flex items-center justify-between p-4 bg-slate-50 rounded-2xl border border-slate-100 text-xs font-semibold"
+          >
             <span class="text-slate-500">提出状況</span>
             <span class="flex items-center gap-1.5 font-bold">
               {#if isModalSubmitted}
-                <span class="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981]"></span>
+                <span
+                  class="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981]"
+                ></span>
                 <span class="text-emerald-600">確定提出済み</span>
               {:else}
-                <span class="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_8px_#f59e0b]"></span>
+                <span
+                  class="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_8px_#f59e0b]"
+                ></span>
                 <span class="text-amber-600">下書き保存（未提出）</span>
               {/if}
             </span>
@@ -3779,7 +4356,9 @@
           <!-- Calendar Grid -->
           <div class="space-y-3">
             <!-- 曜日ヘッダー -->
-            <div class="grid grid-cols-7 gap-2.5 text-center text-[10px] font-black text-slate-400 tracking-widest uppercase">
+            <div
+              class="grid grid-cols-7 gap-2.5 text-center text-[10px] font-black text-slate-400 tracking-widest uppercase"
+            >
               {#each CALENDAR_HEADERS as h}
                 <div>{h}</div>
               {/each}
@@ -3791,18 +4370,20 @@
                 {@const isRegularClosed = d.isRegularClosed}
                 {@const isSpecialClosed = specialHolidays.includes(d.dateStr)}
                 {@const isClosed = isRegularClosed || isSpecialClosed}
-                {@const isAvail = modalAvailabilities[d.dateStr] !== undefined
-                  ? modalAvailabilities[d.dateStr]
-                  : modalSubmitPattern === "A"}
+                {@const isAvail =
+                  modalAvailabilities[d.dateStr] !== undefined
+                    ? modalAvailabilities[d.dateStr]
+                    : modalSubmitPattern === "A"}
                 {@const isNG = !isAvail}
-                
-                <div class="aspect-square rounded-xl border flex flex-col justify-between p-2 select-none relative transition-all duration-200 {d.isOtherMonth
-                  ? 'bg-slate-50/50 border-slate-100 text-slate-300'
-                  : isClosed
-                    ? 'bg-slate-100/60 border-slate-200 text-slate-400 font-bold'
-                    : isNG
-                      ? 'bg-rose-500/10 border-rose-500/20 text-rose-700 shadow-sm'
-                      : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-700 shadow-sm'}"
+
+                <div
+                  class="aspect-square rounded-xl border flex flex-col justify-between p-2 select-none relative transition-all duration-200 {d.isOtherMonth
+                    ? 'bg-slate-50/50 border-slate-100 text-slate-300'
+                    : isClosed
+                      ? 'bg-slate-100/60 border-slate-200 text-slate-400 font-bold'
+                      : isNG
+                        ? 'bg-rose-500/10 border-rose-500/20 text-rose-700 shadow-sm'
+                        : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-700 shadow-sm'}"
                 >
                   <!-- 日付数値 -->
                   <span class="text-xs font-bold leading-none">{d.dayNum}</span>
@@ -3812,11 +4393,17 @@
                     {#if d.isOtherMonth}
                       <!-- なし -->
                     {:else if isClosed}
-                      <span class="text-[9px] font-black text-slate-400">定休</span>
+                      <span class="text-[9px] font-black text-slate-400"
+                        >定休</span
+                      >
                     {:else if isNG}
-                      <span class="text-[9px] font-black text-rose-600 block">❌ 休み</span>
+                      <span class="text-[9px] font-black text-rose-600 block"
+                        >❌ 休み</span
+                      >
                     {:else}
-                      <span class="text-[9px] font-black text-emerald-600 block">🟢 出勤</span>
+                      <span class="text-[9px] font-black text-emerald-600 block"
+                        >🟢 出勤</span
+                      >
                     {/if}
                   </div>
                 </div>
@@ -3826,7 +4413,9 @@
         </div>
 
         <!-- Footer -->
-        <div class="px-6 py-4 bg-slate-50/50 border-t border-slate-100 flex justify-end">
+        <div
+          class="px-6 py-4 bg-slate-50/50 border-t border-slate-100 flex justify-end"
+        >
           <button
             on:click={() => (selectedModalMember = null)}
             class="px-5 py-2.5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold transition-colors border-0 cursor-pointer active:scale-95"
@@ -3857,7 +4446,33 @@
     padding: 1.5rem !important;
   }
 
+  /* カレンダー用グリッドレイアウト */
+  :global(.calendar-grid) {
+    display: grid !important;
+    grid-template-columns: repeat(7, 1fr) !important;
+    gap: 12px !important;
+  }
 
+  /* マテリアルシンボルアイコンの適用 */
+  .material-symbols-outlined {
+    font-family: "Material Symbols Outlined" !important;
+    font-variation-settings:
+      "FILL" 0,
+      "wght" 400,
+      "GRAD" 0,
+      "opsz" 24;
+    display: inline-block;
+    line-height: 1;
+  }
+
+  /* スクロールバーの非表示ユーティリティ */
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
 
   @keyframes fadeUp {
     from {

@@ -89,8 +89,8 @@ const server = http.createServer(async (req, res) => {
 
     if (fs.existsSync(modulePath)) {
       try {
-        // ES Module として動的にインポート
-        const apiModule = await import(url.pathToFileURL(modulePath).href);
+        // ES Module として動的にインポート (キャッシュ破棄のためタイムスタンプを付与)
+        const apiModule = await import(url.pathToFileURL(modulePath).href + `?t=${Date.now()}`);
         const handler = apiModule.default;
 
         // Vercel の req.body/req.query/res.status/res.json などの仕様をエミュレート

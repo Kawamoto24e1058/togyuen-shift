@@ -98,13 +98,13 @@ export default async function handler(req, res) {
   // ==========================================
   if (action === 'update' || (req.method === 'POST' && action !== 'archive' && action !== 'update-admin')) {
     try {
-      const { id, targetDays } = req.body || {};
-      if (!id || targetDays === undefined) {
-        return res.status(400).send('必須パラメータ（id, targetDays）が不足しています。');
+      const { id, targetDays, roles, status } = req.body || {};
+      if (!id) {
+        return res.status(400).send('必須パラメータ（id）が不足しています。');
       }
 
       const memberIdStr = String(id);
-      console.info(`[API Members Update] Updating targetDays for member ${memberIdStr} to ${targetDays}`);
+      console.info(`[API Members Update] Updating fields for member ${memberIdStr}`);
 
       const docRef = db.collection('members').doc(memberIdStr);
       const doc = await docRef.get();
@@ -113,10 +113,23 @@ export default async function handler(req, res) {
         return res.status(404).send('指定されたメンバーが見つかりません。');
       }
 
-      await docRef.update({
-        targetDays: Number(targetDays),
+      const updateData = {
         updatedAt: new Date().toISOString()
-      });
+      };
+
+      if (targetDays !== undefined) {
+        updateData.targetDays = Number(targetDays);
+      }
+      if (roles !== undefined) {
+        updateData.roles = roles;
+        updateData.role = roles[0] || 'hall';
+      }
+      if (status !== undefined) {
+        updateData.status = status;
+        updateData.isTrainee = status === 'trainee';
+      }
+
+      await docRef.update(updateData);
 
       console.info(`[API Members Update] Successfully updated member ${memberIdStr}!`);
 
@@ -124,7 +137,7 @@ export default async function handler(req, res) {
         success: true,
         message: 'メンバー設定を更新しました。',
         id: Number(id),
-        targetDays: Number(targetDays)
+        ...updateData
       });
     } catch (err) {
       console.error('[API Members Update] Error:', err);
