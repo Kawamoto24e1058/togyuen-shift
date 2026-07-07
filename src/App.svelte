@@ -2738,6 +2738,8 @@
                       })}
                     {@const hasShift = dayShifts.length > 0}
                     {@const isSelected = selectedCalendarDate === d.dateStr}
+                    {@const isToday = d.dateStr === new Date().toLocaleDateString("sv-SE")}
+                    {@const hasMyShift = !!(currentUser && dayShifts.some((s) => s.member_id === currentUser?.id))}
 
                     <button
                       type="button"
@@ -2748,7 +2750,11 @@
                       disabled={d.isOtherMonth}
                       class="h-12 flex flex-col items-center justify-center font-body-sm text-body-sm relative cursor-pointer border-0 bg-transparent transition-all active:scale-95 outline-none select-none
                       {d.isOtherMonth ? 'opacity-0 pointer-events-none' : ''}
-                      {isSelected ? 'text-white font-bold' : 'text-on-surface'}"
+                      {isSelected 
+                        ? 'text-white font-bold' 
+                        : isToday 
+                          ? 'text-primary font-black scale-105' 
+                          : 'text-on-surface'}"
                     >
                       <span class="z-10">{d.dayNum}</span>
 
@@ -2757,14 +2763,27 @@
                         <div
                           class="absolute inset-0 m-1 bg-primary rounded-full shadow-md z-0"
                         ></div>
-                      {:else if !d.isOtherMonth && !isClosed && isVisibleToUser && hasShift}
-                        <!-- アサインあり（未選択）：薄い青の丸型輪郭とドット -->
-                        <div
-                          class="absolute inset-0 m-1 bg-primary/10 rounded-full border border-primary/20 z-0"
-                        ></div>
-                        <div
-                          class="w-1 h-1 bg-primary rounded-full mt-0.5 z-10"
-                        ></div>
+                      {:else if !d.isOtherMonth && !isClosed && isVisibleToUser}
+                        {#if hasMyShift}
+                          <!-- 自分のシフトがある日 (極上のグリーンハイライト) -->
+                          <div
+                            class="absolute inset-0 m-1 bg-emerald-500/10 rounded-full border border-emerald-500/30 z-0 {isToday ? 'ring-2 ring-primary/40' : ''}"
+                          ></div>
+                          <div
+                            class="w-1.5 h-1.5 bg-emerald-500 rounded-full mt-0.5 z-10"
+                            title="自分のシフトがあります"
+                          ></div>
+                        {:else if isToday}
+                          <!-- 今日 (シフトなし) -->
+                          <div
+                            class="absolute inset-0 m-1 bg-transparent rounded-full border-2 border-primary/40 z-0"
+                          ></div>
+                        {:else if hasShift}
+                          <!-- 他人のアサインあり（未選択）：薄い青の丸型輪郭のみ表示（点は表示しない） -->
+                          <div
+                            class="absolute inset-0 m-1 bg-primary/5 rounded-full border border-primary/10 z-0"
+                          ></div>
+                        {/if}
                       {/if}
 
                       <!-- 定休日・臨時休業・調整中のバッジ表示 -->
