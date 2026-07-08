@@ -41,7 +41,10 @@ export function generateShift(data) {
   function isTrainee(m) {
     return m.status === 'trainee' || m.status === 'training' || m.isTraining === true;
   }
-  function isRegular(m) { return !isTrainee(m); }
+  function isAdmin(m) {
+    return m.isAdmin === true;
+  }
+  function isRegular(m) { return !isTrainee(m) && !isAdmin(m); }
 
   // -------------------------------------------------------
   // 提出データをマップ化: submissionsMap[member_id][dateStr] = true/false
@@ -116,11 +119,47 @@ export function generateShift(data) {
     // 必要な追加人数を判定
     const availableRegulars = members
       .filter(m => isRegular(m) && canWork(m, dateStr) && assignments[dateStr][m.id] === null)
-      .sort((a, b) => workCount(assignments, a.id) - workCount(assignments, b.id));
+      .sort((a, b) => {
+        // 土日のキッチンに限り、早出可能（canHappyHour）なメンバーを最優先にする
+        if (isWeekend(dateStr)) {
+          const aIsKitchen = a.roles.includes('kitchen');
+          const bIsKitchen = b.roles.includes('kitchen');
+          if (aIsKitchen && bIsKitchen) {
+            const aHH = a.canHappyHour ? 1 : 0;
+            const bHH = b.canHappyHour ? 1 : 0;
+            if (aHH !== bHH) return bHH - aHH;
+          }
+        }
+        // 公平性の重み付け：目標出勤日数に対する消化比率が低い人を最優先する
+        const ratioA = workCount(assignments, a.id) / (targetDays[a.id] || 1);
+        const ratioB = workCount(assignments, b.id) / (targetDays[b.id] || 1);
+        if (Math.abs(ratioA - ratioB) > 0.001) {
+          return ratioA - ratioB;
+        }
+        return workCount(assignments, a.id) - workCount(assignments, b.id);
+      });
 
     const availableTrainees = members
       .filter(m => isTrainee(m) && canWork(m, dateStr) && assignments[dateStr][m.id] === null)
-      .sort((a, b) => workCount(assignments, a.id) - workCount(assignments, b.id));
+      .sort((a, b) => {
+        // 土日のキッチンに限り、早出可能（canHappyHour）なメンバーを最優先にする
+        if (isWeekend(dateStr)) {
+          const aIsKitchen = a.roles.includes('kitchen');
+          const bIsKitchen = b.roles.includes('kitchen');
+          if (aIsKitchen && bIsKitchen) {
+            const aHH = a.canHappyHour ? 1 : 0;
+            const bHH = b.canHappyHour ? 1 : 0;
+            if (aHH !== bHH) return bHH - aHH;
+          }
+        }
+        // 公平性の重み付け：目標出勤日数に対する消化比率が低い人を最優先する
+        const ratioA = workCount(assignments, a.id) / (targetDays[a.id] || 1);
+        const ratioB = workCount(assignments, b.id) / (targetDays[b.id] || 1);
+        if (Math.abs(ratioA - ratioB) > 0.001) {
+          return ratioA - ratioB;
+        }
+        return workCount(assignments, a.id) - workCount(assignments, b.id);
+      });
 
     // 研修生が出勤していないか確認
     const traineeOnDay = alreadyAssigned.some(id => {
@@ -177,6 +216,48 @@ export function generateShift(data) {
         const role = m.roles.includes('kitchen') ? 'kitchen' : m.roles[0];
         assignments[dateStr][m.id] = role;
         currentTotal++;
+      }
+    }
+
+    // ----------------------------------------------------
+    // 管理者によるヘルプ補填 (それでも枠が埋まっていない場合)
+    // ----------------------------------------------------
+    let finalKitchenFilled = Object.entries(assignments[dateStr]).some(([id, r]) => r === 'kitchen');
+    let finalHallFilled = Object.entries(assignments[dateStr]).some(([id, r]) => r === 'hall');
+    let finalTotal = Object.values(assignments[dateStr]).filter(r => r !== null).length;
+
+    const availableAdmins = members.filter(m => m.isAdmin === true && canWork(m, dateStr) && assignments[dateStr][m.id] === null);
+
+    // 1. キッチンが不在の場合、キッチン可能な管理者を割り当て
+    if (!finalKitchenFilled && availableAdmins.length > 0) {
+      const helperAdmin = availableAdmins.find(m => m.roles.includes('kitchen'));
+      if (helperAdmin) {
+        assignments[dateStr][helperAdmin.id] = 'kitchen';
+        finalTotal++;
+        finalKitchenFilled = true;
+        availableAdmins.splice(availableAdmins.indexOf(helperAdmin), 1);
+      }
+    }
+
+    // 2. ホールが不在の場合、ホール可能な管理者を割り当て
+    if (!finalHallFilled && availableAdmins.length > 0) {
+      const helperAdmin = availableAdmins.find(m => m.roles.includes('hall'));
+      if (helperAdmin) {
+        assignments[dateStr][helperAdmin.id] = 'hall';
+        finalTotal++;
+        finalHallFilled = true;
+        availableAdmins.splice(availableAdmins.indexOf(helperAdmin), 1);
+      }
+    }
+
+    // 3. まだ最低人数 minRequired を満たしていない場合、残りの管理者を投入
+    if (finalTotal < minRequired && availableAdmins.length > 0) {
+      const shortage = minRequired - finalTotal;
+      const helpers = availableAdmins.slice(0, shortage);
+      for (const m of helpers) {
+        const role = m.roles.includes('kitchen') ? 'kitchen' : m.roles[0];
+        assignments[dateStr][m.id] = role;
+        finalTotal++;
       }
     }
   }
@@ -258,7 +339,22 @@ export function generateShift(data) {
     for (const m of members) {
       const role = assignments[dateStr][m.id];
       if (role === null) continue;
-      const startTime = role === 'kitchen' ? '17:00' : '17:30';
+
+      let startTime = role === 'kitchen' ? '17:00' : '17:30';
+
+      // 土日で、キッチンのスタッフが土日早出（ハッピーアワー）対応可能であれば 15:00 開始とする
+      if (isWeekend(dateStr) && role === 'kitchen' && m.canHappyHour) {
+        startTime = '15:00';
+      }
+
+      // 手動ロックシフトが存在する場合は、その元の開始時間を最優先で保持する
+      const lockedShift = locked_assignments.find(
+        (la) => Number(la.member_id) === m.id && la.date === dateStr && la.role === role
+      );
+      if (lockedShift && lockedShift.start_time) {
+        startTime = lockedShift.start_time;
+      }
+
       const isLocked  = lockedSet.has(`${m.id}|${dateStr}|${role}`);
       result.push({
         date:        dateStr,

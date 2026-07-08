@@ -16,6 +16,41 @@ export default async function handler(req, res) {
   const action = req.query.action || urlParts[3] || (req.body && req.body.action) || '';
 
   // ==========================================
+  // DISPATCH: delete (POST)
+  // ==========================================
+  if (action === 'delete') {
+    try {
+      const { id } = req.body || {};
+      if (!id) {
+        return res.status(400).send('必須パラメータ（id）が不足しています。');
+      }
+
+      const memberIdStr = String(id);
+      console.info(`[API Members Delete] Physically deleting member ${memberIdStr}`);
+
+      const docRef = db.collection('members').doc(memberIdStr);
+      const doc = await docRef.get();
+
+      if (!doc.exists) {
+        return res.status(404).send('指定されたメンバーが見つかりません。');
+      }
+
+      await docRef.delete();
+
+      console.info(`[API Members Delete] Successfully deleted member ${memberIdStr} from Firestore!`);
+
+      return res.status(200).json({
+        success: true,
+        message: 'メンバーを完全に削除しました。',
+        id: Number(id)
+      });
+    } catch (err) {
+      console.error('[API Members Delete] Error:', err);
+      return res.status(500).send('メンバーの削除に失敗しました。');
+    }
+  }
+
+  // ==========================================
   // DISPATCH: archive (POST)
   // ==========================================
   if (action === 'archive') {
@@ -98,7 +133,7 @@ export default async function handler(req, res) {
   // ==========================================
   if (action === 'update' || (req.method === 'POST' && action !== 'archive' && action !== 'update-admin')) {
     try {
-      const { id, targetDays, roles, status } = req.body || {};
+      const { id, targetDays, roles, status, passcode, canHappyHour } = req.body || {};
       if (!id) {
         return res.status(400).send('必須パラメータ（id）が不足しています。');
       }
@@ -127,6 +162,12 @@ export default async function handler(req, res) {
       if (status !== undefined) {
         updateData.status = status;
         updateData.isTrainee = status === 'trainee';
+      }
+      if (passcode !== undefined) {
+        updateData.passcode = String(passcode);
+      }
+      if (canHappyHour !== undefined) {
+        updateData.canHappyHour = (canHappyHour === true || canHappyHour === 'true');
       }
 
       await docRef.update(updateData);
@@ -166,6 +207,7 @@ export default async function handler(req, res) {
           isTrainee: data.isTrainee !== undefined ? data.isTrainee : (data.status === 'trainee'),
           isActive: data.isActive !== false,
           isAdmin: data.isAdmin === true,
+          canHappyHour: data.canHappyHour === true,
           emoji: data.roles?.includes('kitchen') ? '👨‍🍳' : '👩‍💼',
           color: data.roles?.includes('kitchen') ? '#ff7043' : '#ffb300',
           lineUserId: data.lineUserId || null,

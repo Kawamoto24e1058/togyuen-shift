@@ -1,6 +1,5 @@
 // api/shifts.js
 import { db } from './_lib/firebase-admin.js';
-import { generateShift } from './_lib/shift-solver.js';
 
 export default async function handler(req, res) {
   // CORSヘッダー設定
@@ -102,17 +101,18 @@ export default async function handler(req, res) {
       membersSnap.forEach(doc => {
         const data = doc.data();
         if (data.isActive === false) return; // Skip inactive members!
-        if (data.isAdmin === true) return; // Exclude administrators from automated assignment!
         let targetDays = data.targetDays !== undefined ? Number(data.targetDays) : 5;
         if (targetDays > 7) {
           targetDays = Math.floor(targetDays / 2);
         }
         members.push({
           id: Number(doc.id),
-          name: data.name,
+          name: data.fullName || data.name,
           roles: data.roles || [data.role || 'hall'],
           status: data.status || 'regular',
-          targetDays: targetDays
+          targetDays: targetDays,
+          isAdmin: Boolean(data.isAdmin),
+          canHappyHour: data.canHappyHour === true || data.canHappyHour === 'true'
         });
       });
 
@@ -185,7 +185,9 @@ export default async function handler(req, res) {
       // JS ソルバーで直接シフト生成（Python 不要）
       // -------------------------------------------------------
       console.info('[API Shift Generate] Running JS shift solver...');
-      const shifts = generateShift({
+      // ホットリロード時のキャッシュバグを回避するため、タイムスタンプ付きで動的インポート
+      const solverModule = await import(`./_lib/shift-solver.js?t=${Date.now()}`);
+      const shifts = solverModule.generateShift({
         start_date: startDateStr,
         end_date: endDateStr,
         members,

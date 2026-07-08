@@ -1,4 +1,6 @@
 <script>
+  // @ts-nocheck
+
   import { onMount } from "svelte";
   import { fade } from "svelte/transition";
   import {
@@ -469,6 +471,16 @@
   let selectedQuickLoginMember = null;
   let quickLoginPasscode = "";
 
+  /** @type {number[]} */
+  let myDeviceUserIds = [];
+  try {
+    myDeviceUserIds = JSON.parse(
+      localStorage.getItem("myDeviceUserIds") || "[]",
+    );
+  } catch (e) {
+    console.error(e);
+  }
+
   // シフト表カレンダー用（モバイル特化UI統合）
   let selectedCalendarDate = "";
 
@@ -531,6 +543,23 @@
   }
 
   /**
+   * @param {number} userId
+   */
+  function saveDeviceUser(userId) {
+    try {
+      /** @type {number[]} */
+      let ids = JSON.parse(localStorage.getItem("myDeviceUserIds") || "[]");
+      if (!ids.includes(userId)) {
+        ids.push(userId);
+        localStorage.setItem("myDeviceUserIds", JSON.stringify(ids));
+      }
+      myDeviceUserIds = ids;
+    } catch (e) {
+      console.error(e);
+    }
+  }
+
+  /**
    * @param {Member} member
    */
   async function handleQuickLoginSelect(member) {
@@ -542,6 +571,7 @@
     currentUser = registeredUser;
 
     localStorage.setItem("currentUser", JSON.stringify(registeredUser));
+    saveDeviceUser(registeredUser.id);
     triggerToast(
       `💚 ログインしました！おかえりなさい、${registeredUser.name}さん。`,
     );
@@ -676,16 +706,17 @@
 
     // 既存アクティブメンバーとイニシャル被りチェック
     const isDuplicate = members.some(
-      (m) => m.isActive !== false && m.initialChar === initial
+      (m) => m.isActive !== false && m.initialChar === initial,
     );
     if (isDuplicate) {
-      triggerToast(`⚠️ 「${initial}」は既に他のスタッフが使用しています。別の文字を指定してください。`);
+      triggerToast(
+        `⚠️ 「${initial}」は既に他のスタッフが使用しています。別の文字を指定してください。`,
+      );
       return;
     }
 
     isRegistering = true;
     try {
-      // パスコード登録を廃止したため、バックエンド側にはデフォルト値として空文字または適当な値を送る
       const res = await fetch("/api/auth/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -712,6 +743,7 @@
         currentUser = registeredUser;
 
         localStorage.setItem("currentUser", JSON.stringify(registeredUser));
+        saveDeviceUser(registeredUser.id);
         triggerToast(
           `💚 登録が完了しました！${registeredUser.name}さん、歓迎します。スタッフID: TN-${String(registeredUser.id).padStart(5, "0")}`,
         );
@@ -719,6 +751,7 @@
         regInviteCode = "";
         regInviteName = "";
         regInitialChar = "";
+        regPasscode = "";
         regRoles = [];
         regIsTrainee = false;
 
@@ -1066,6 +1099,7 @@
 
         // ログインキャッシュを作成
         localStorage.setItem("currentUser", JSON.stringify(registeredUser));
+        saveDeviceUser(registeredUser.id);
         triggerToast(
           `💚 登録が完了しました！${registeredUser.name}さん、歓迎します。`,
         );
@@ -1349,6 +1383,56 @@
     return acc;
   }, /** @type {Record<string, { isValid: boolean, message?: string }>} */ ({}));
 
+  $: deficitDates = DATES.filter((d) => {
+    const isClosed = d.isRegularClosed || specialHolidays.includes(d.dateStr);
+    if (isClosed) return false;
+    return !validationResults[d.dateStr]?.isValid;
+  }).map((d) => {
+    const dateStr = d.dateStr;
+    const todayShifts = shifts.filter((s) => s.date === dateStr);
+    const kitchenCount = todayShifts.filter((s) => s.role === "kitchen").length;
+    const hallCount = todayShifts.filter((s) => s.role === "hall").length;
+
+    // 研修生のチェック
+    const traineeStaff = todayShifts.filter((s) => {
+      const m = members.find((mem) => mem.id === s.member_id);
+      return m && m.status === "trainee";
+    });
+    const hasTrainee = traineeStaff.length > 0;
+    const requiredTotal = hasTrainee ? 3 : 2;
+    const totalCount = todayShifts.length;
+
+    let deficitReason = "";
+    if (kitchenCount < 1 && hallCount < 1) {
+      deficitReason = "🍳 厨房・🛎 ホール不足";
+    } else if (kitchenCount < 1) {
+      deficitReason = "🍳 キッチン不足 1名";
+    } else if (hallCount < 1) {
+      deficitReason = "🙋‍♂️ ホール不足 1名";
+    } else if (totalCount < requiredTotal) {
+      deficitReason = `👥 人数不足 ${requiredTotal - totalCount}名`;
+    } else {
+      deficitReason = validationResults[dateStr]?.message || "要確認";
+    }
+
+    // 表示用のフォーマット: "7月18日(土)"
+    const dateParts = dateStr.split("-");
+    const monthNum = Number(dateParts[1]);
+    const dayNum = Number(dateParts[2]);
+    const dayOfWeek = ["日", "月", "火", "水", "木", "金", "土"][
+      new Date(dateStr + "T00:00:00").getDay()
+    ];
+    const dateLabel = `${monthNum}月${dayNum}日(${dayOfWeek})`;
+
+    return {
+      dateStr,
+      dateLabel,
+      reason: deficitReason,
+      isKitchenDeficit: kitchenCount < 1,
+      isHallDeficit: hallCount < 1 && kitchenCount >= 1,
+    };
+  });
+
   $: isVisibleA = currentUser?.isAdmin || shiftStatusA === "published";
   $: isVisibleB = currentUser?.isAdmin || shiftStatusB === "published";
 
@@ -1631,6 +1715,31 @@
 
   /**
    * @param {number} memberId
+   */
+  async function deleteMember(memberId) {
+    try {
+      const res = await fetch("/api/members/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: memberId }),
+      });
+      if (res.ok) {
+        const mName =
+          members.find((m) => m.id === memberId)?.name || "スタッフ";
+        members = members.filter((m) => m.id !== memberId);
+        triggerToast(`🗑️ ${mName}さんのデータを完全に削除しました。`);
+      } else {
+        throw new Error(await res.text());
+      }
+    } catch (error) {
+      const err = /** @type {any} */ (error);
+      console.error("メンバーの削除に失敗しました:", err);
+      triggerToast(`⚠️ 削除失敗: ${err.message}`);
+    }
+  }
+
+  /**
+   * @param {number} memberId
    * @param {string[]} newRoles
    */
   async function updateMemberRoles(memberId, newRoles) {
@@ -1643,7 +1752,7 @@
       if (res.ok) {
         members = members.map((m) => {
           if (m.id === memberId) {
-            return { ...m, roles: newRoles, role: newRoles[0] || 'hall' };
+            return { ...m, roles: newRoles, role: newRoles[0] || "hall" };
           }
           return m;
         });
@@ -1655,6 +1764,35 @@
       const err = /** @type {any} */ (error);
       console.error(err);
       triggerToast(`⚠️ 役割の更新に失敗しました: ${err.message}`);
+    }
+  }
+
+  /**
+   * @param {number} memberId
+   * @param {string} newPasscode
+   */
+  async function updateMemberPasscode(memberId, newPasscode) {
+    try {
+      const res = await fetch("/api/members/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: memberId, passcode: newPasscode }),
+      });
+      if (res.ok) {
+        members = members.map((m) => {
+          if (m.id === memberId) {
+            return { ...m, passcode: newPasscode };
+          }
+          return m;
+        });
+        triggerToast("🔑 暗証番号（パスコード）を更新しました。");
+      } else {
+        throw new Error(await res.text());
+      }
+    } catch (error) {
+      const err = /** @type {any} */ (error);
+      console.error(err);
+      triggerToast(`⚠️ 暗証番号の更新に失敗しました: ${err.message}`);
     }
   }
 
@@ -1672,11 +1810,17 @@
       if (res.ok) {
         members = members.map((m) => {
           if (m.id === memberId) {
-            return { ...m, status: newStatus, isTrainee: newStatus === 'trainee' };
+            return {
+              ...m,
+              status: newStatus,
+              isTrainee: newStatus === "trainee",
+            };
           }
           return m;
         });
-        triggerToast(`🔰 研修ステータスを ${newStatus === 'trainee' ? '研修中' : '一般'} に更新しました。`);
+        triggerToast(
+          `🔰 研修ステータスを ${newStatus === "trainee" ? "研修中" : "一般"} に更新しました。`,
+        );
       } else {
         throw new Error(await res.text());
       }
@@ -1684,6 +1828,44 @@
       const err = /** @type {any} */ (error);
       console.error(err);
       triggerToast(`⚠️ ステータスの更新に失敗しました: ${err.message}`);
+    }
+  }
+
+  /**
+   * @param {number} memberId
+   * @param {boolean} canHappyHour
+   */
+  async function toggleHappyHourAbility(memberId, canHappyHour) {
+    try {
+      const res = await fetch("/api/members/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: memberId, canHappyHour }),
+      });
+      if (res.ok) {
+        members = members.map((m) => {
+          if (m.id === memberId) {
+            return {
+              ...m,
+              canHappyHour,
+            };
+          }
+          return m;
+        });
+        const mName =
+          members.find((m) => m.id === memberId)?.name || "スタッフ";
+        triggerToast(
+          canHappyHour
+            ? `🍻 ${mName}さんをハッピーアワー対応可能に設定しました。`
+            : `🍻 ${mName}さんをハッピーアワー対応不可に設定しました。`,
+        );
+      } else {
+        throw new Error(await res.text());
+      }
+    } catch (error) {
+      const err = /** @type {any} */ (error);
+      console.error("ハッピーアワー対応設定の更新に失敗しました:", err);
+      triggerToast(`⚠️ 設定更新失敗: ${err.message}`);
     }
   }
 
@@ -2477,7 +2659,7 @@
                 <div
                   class="flex flex-col gap-3 max-h-[360px] overflow-y-auto hide-scrollbar p-1"
                 >
-                  {#each members.filter((m) => m.isActive !== false) as m}
+                  {#each members.filter((m) => m.isActive !== false && myDeviceUserIds.includes(m.id)) as m}
                     {@const isKitchen = m.roles?.includes("kitchen")}
                     {@const isTrainee = m.status === "trainee"}
                     <div
@@ -2532,10 +2714,17 @@
                       </button>
                     </div>
                   {:else}
-                    <p class="text-xs text-slate-400 text-center py-8">
-                      登録済みのスタッフはいません。<br
-                      />「新規登録」を選択して登録してください。
-                    </p>
+                    <div
+                      class="text-center py-10 px-4 bg-slate-50 rounded-2xl border border-dashed border-slate-200"
+                    >
+                      <span class="text-3xl block mb-2">👋</span>
+                      <p class="text-xs font-bold text-slate-700">
+                        この端末でログインした履歴がありません
+                      </p>
+                      <p class="text-[10px] text-slate-400 font-semibold mt-1">
+                        新しく始める方は上の「新規登録」タブから登録してください。
+                      </p>
+                    </div>
                   {/each}
                 </div>
               </div>
@@ -2562,7 +2751,8 @@
               <div class="space-y-1 flex flex-col">
                 <label
                   for="reg-initial-char"
-                  class="text-xs font-bold text-slate-700 ml-1">シフト表表示用の1文字</label
+                  class="text-xs font-bold text-slate-700 ml-1"
+                  >シフト表表示用の1文字</label
                 >
                 <input
                   id="reg-initial-char"
@@ -2618,14 +2808,24 @@
               <!-- 研修生トグル -->
               <div
                 class="flex items-center justify-between border rounded-xl p-4 mt-1 border-solid transition-all duration-200
-                {regIsTrainee ? 'bg-amber-50/50 border-amber-300 shadow-sm' : 'bg-slate-50 border-slate-200'}"
+                {regIsTrainee
+                  ? 'bg-amber-50/50 border-amber-300 shadow-sm'
+                  : 'bg-slate-50 border-slate-200'}"
               >
                 <div class="flex items-center gap-2">
-                  <span class="text-xs font-bold text-slate-700">研修中（トレーニング中）</span>
+                  <span class="text-xs font-bold text-slate-700"
+                    >研修中（トレーニング中）</span
+                  >
                   {#if regIsTrainee}
-                    <span class="bg-amber-100 text-amber-800 text-[10px] font-black px-1.5 py-0.5 rounded flex items-center gap-0.5 animate-pulse">🔰 研修中</span>
+                    <span
+                      class="bg-amber-100 text-amber-800 text-[10px] font-black px-1.5 py-0.5 rounded flex items-center gap-0.5 animate-pulse"
+                      >🔰 研修中</span
+                    >
                   {:else}
-                    <span class="bg-slate-200 text-slate-600 text-[10px] font-bold px-1.5 py-0.5 rounded">一般</span>
+                    <span
+                      class="bg-slate-200 text-slate-600 text-[10px] font-bold px-1.5 py-0.5 rounded"
+                      >一般</span
+                    >
                   {/if}
                 </div>
                 <label class="relative inline-flex items-center cursor-pointer">
@@ -2738,8 +2938,12 @@
                       })}
                     {@const hasShift = dayShifts.length > 0}
                     {@const isSelected = selectedCalendarDate === d.dateStr}
-                    {@const isToday = d.dateStr === new Date().toLocaleDateString("sv-SE")}
-                    {@const hasMyShift = !!(currentUser && dayShifts.some((s) => s.member_id === currentUser?.id))}
+                    {@const isToday =
+                      d.dateStr === new Date().toLocaleDateString("sv-SE")}
+                    {@const hasMyShift = !!(
+                      currentUser &&
+                      dayShifts.some((s) => s.member_id === currentUser?.id)
+                    )}
 
                     <button
                       type="button"
@@ -2750,10 +2954,10 @@
                       disabled={d.isOtherMonth}
                       class="h-12 flex flex-col items-center justify-center font-body-sm text-body-sm relative cursor-pointer border-0 bg-transparent transition-all active:scale-95 outline-none select-none
                       {d.isOtherMonth ? 'opacity-0 pointer-events-none' : ''}
-                      {isSelected 
-                        ? 'text-white font-bold' 
-                        : isToday 
-                          ? 'text-primary font-black scale-105' 
+                      {isSelected
+                        ? 'text-white font-bold'
+                        : isToday
+                          ? 'text-primary font-black scale-105'
                           : 'text-on-surface'}"
                     >
                       <span class="z-10">{d.dayNum}</span>
@@ -2767,7 +2971,9 @@
                         {#if hasMyShift}
                           <!-- 自分のシフトがある日 (極上のグリーンハイライト) -->
                           <div
-                            class="absolute inset-0 m-1 bg-emerald-500/10 rounded-full border border-emerald-500/30 z-0 {isToday ? 'ring-2 ring-primary/40' : ''}"
+                            class="absolute inset-0 m-1 bg-emerald-500/10 rounded-full border border-emerald-500/30 z-0 {isToday
+                              ? 'ring-2 ring-primary/40'
+                              : ''}"
                           ></div>
                           <div
                             class="w-1.5 h-1.5 bg-emerald-500 rounded-full mt-0.5 z-10"
@@ -3492,7 +3698,9 @@
                 </div>
 
                 <!-- Calendar Header -->
-                <div class="grid grid-cols-7 calendar-grid border-b border-surface-variant mb-2">
+                <div
+                  class="grid grid-cols-7 calendar-grid border-b border-surface-variant mb-2"
+                >
                   {#each CALENDAR_HEADERS as h}
                     <div
                       class="text-center py-2 text-label-caps font-label-caps
@@ -3528,6 +3736,7 @@
                     })()}
 
                     <button
+                      id={`calendar-cell-${d.dateStr}`}
                       type="button"
                       on:click={() => {
                         if (d.isOtherMonth) return;
@@ -3574,83 +3783,219 @@
                           {isRegularClosed ? "定休日" : "臨時休業"}
                         </div>
                       {:else}
-                        <div class="flex flex-wrap gap-1 w-full">
-                          {#each dayShifts as s}
-                            {@const colorClass =
-                              s.role === "kitchen"
-                                ? "bg-primary-container/10 text-primary"
-                                : "bg-tertiary-container/10 text-tertiary"}
-                            <span
-                              class="w-5 h-5 flex items-center justify-center {colorClass} text-[10px] font-bold rounded-sm"
-                              title={s.member_name}
+                        {@const kitchenShifts = dayShifts.filter(
+                          (s) => s.role === "kitchen",
+                        )}
+                        {@const hallShifts = dayShifts.filter(
+                          (s) => s.role === "hall",
+                        )}
+                        <div class="flex flex-col gap-1 w-full mt-1">
+                          <!-- Kitchen Section -->
+                          {#if kitchenShifts.length > 0}
+                            <div
+                              class="flex flex-wrap items-center gap-1 w-full pb-1 border-b border-dashed border-slate-100 last:border-b-0 last:pb-0"
                             >
-                              {getMemberInitial(s.member_name, members)}
-                            </span>
-                          {/each}
+                              <span
+                                class="text-[9px] opacity-65 select-none w-3 flex justify-center"
+                                title="キッチン">🍳</span
+                              >
+                              {#each kitchenShifts as s}
+                                {@const staff = members.find((mem) => mem.id == s.member_id)}
+                                {@const defaultKitchenTime = (d.isWeekend && staff?.canHappyHour) ? "15:00" : "17:00"}
+                                {@const isModified = s.start_time !== defaultKitchenTime}
+                                {@const badgeColor = isModified
+                                  ? "bg-amber-50 border-amber-300 text-amber-900 shadow-sm"
+                                  : "bg-primary-container/10 border-primary-container/30 text-primary"}
+                                <div
+                                  class="flex flex-col items-center justify-center p-0.5 min-w-[26px] md:min-w-[30px] h-[26px] md:h-[30px] {badgeColor} border border-solid rounded transition-all select-none"
+                                  title={`${s.member_name} (${s.start_time}〜)`}
+                                >
+                                  <span
+                                    class="text-[10px] md:text-[11px] font-black leading-none"
+                                  >
+                                    {getMemberInitial(s.member_name, members)}
+                                  </span>
+                                  <span
+                                    class="text-[7.5px] md:text-[8px] leading-none mt-0.5 font-mono font-bold {isModified
+                                      ? 'text-rose-600 font-black'
+                                      : 'text-slate-500'}"
+                                  >
+                                    {s.start_time || defaultKitchenTime}
+                                  </span>
+                                </div>
+                              {/each}
+                            </div>
+                          {/if}
+
+                          <!-- Hall Section -->
+                          {#if hallShifts.length > 0}
+                            <div
+                              class="flex flex-wrap items-center gap-1 w-full"
+                            >
+                              <span
+                                class="text-[9px] opacity-65 select-none w-3 flex justify-center"
+                                title="ホール">🛎️</span
+                              >
+                              {#each hallShifts as s}
+                                {@const defaultHallTime = "17:30"}
+                                {@const isModified = s.start_time !== defaultHallTime}
+                                {@const badgeColor = isModified
+                                  ? "bg-amber-50 border-amber-300 text-amber-900 shadow-sm"
+                                  : "bg-tertiary-container/10 border-tertiary-container/30 text-tertiary"}
+                                <div
+                                  class="flex flex-col items-center justify-center p-0.5 min-w-[26px] md:min-w-[30px] h-[26px] md:h-[30px] {badgeColor} border border-solid rounded transition-all select-none"
+                                  title={`${s.member_name} (${s.start_time}〜)`}
+                                >
+                                  <span
+                                    class="text-[10px] md:text-[11px] font-black leading-none"
+                                  >
+                                    {getMemberInitial(s.member_name, members)}
+                                  </span>
+                                  <span
+                                    class="text-[7.5px] md:text-[8px] leading-none mt-0.5 font-mono font-bold {isModified
+                                      ? 'text-rose-600 font-black'
+                                      : 'text-slate-500'}"
+                                  >
+                                    {s.start_time || defaultHallTime}
+                                  </span>
+                                </div>
+                              {/each}
+                            </div>
+                          {/if}
                         </div>
                       {/if}
                     </button>
                   {/each}
                 </div>
               </div>
-            </div>
 
-            <!-- 右側: 充足率サマリー・設定サイドバー (1カラム分) -->
-            <div class="flex flex-col gap-6">
-              <!-- Status / Summary Card -->
+              <!-- 要確認ダッシュボード (左右2カラムの特大Appleスタイルカード) -->
               <div
-                class="bg-white rounded-[20px] p-6 shadow-soft border border-slate-100 space-y-4"
+                class="bg-white rounded-[24px] p-6 shadow-soft border border-slate-100 flex flex-col gap-6"
               >
-                <h3
-                  class="font-label-caps text-label-caps text-secondary mb-2 uppercase tracking-wider"
-                >
-                  充足率サマリー
-                </h3>
+                <!-- ヘッダー -->
+                <div class="border-b border-slate-100 pb-3">
+                  <h3
+                    class="font-bold text-sm text-slate-800 flex items-center gap-1.5 font-sans"
+                  >
+                    📋 要確認ダッシュボード
+                  </h3>
+                </div>
 
-                <div class="space-y-3.5">
-                  <div
-                    class="flex justify-between items-center border-b border-slate-50 pb-2"
-                  >
-                    <span class="text-xs font-semibold text-slate-600"
-                      >未提出メンバー</span
-                    >
+                <!-- 左右2カラムレイアウト -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <!-- 【左側：📅 人手不足の日程リスト】 -->
+                  <div class="flex flex-col space-y-3">
                     <span
-                      class="bg-primary/10 text-primary px-2.5 py-0.5 rounded-full text-[10px] font-bold"
+                      class="text-xs font-bold text-slate-700 flex items-center gap-1 font-sans"
                     >
-                      {unsubmittedCount}名
+                      ⚠️ 人手不足の日程
+                      <span
+                        class="bg-red-100 text-red-700 text-[10px] px-2 py-0.5 rounded-full font-black font-sans"
+                      >
+                        {deficitDates.length}件
+                      </span>
                     </span>
-                  </div>
-                  <div
-                    class="flex justify-between items-center border-b border-slate-50 pb-2"
-                  >
-                    <span class="text-xs font-semibold text-slate-600"
-                      >欠員・違反アラート</span
+
+                    <div
+                      class="max-h-[220px] overflow-y-auto pr-1 space-y-2 hide-scrollbar"
                     >
+                      {#each deficitDates as d}
+                        <button
+                          type="button"
+                          on:click={() => {
+                            selectedCalendarDate = d.dateStr;
+                            document
+                              .getElementById(`calendar-cell-${d.dateStr}`)
+                              ?.scrollIntoView({
+                                behavior: "smooth",
+                                block: "center",
+                              });
+                          }}
+                          class="w-full text-left p-3 rounded-xl border border-solid transition-all duration-200 cursor-pointer flex justify-between items-center text-xs font-sans
+                          {d.isKitchenDeficit
+                            ? 'bg-red-50/70 border-red-100 hover:border-red-300 text-red-700'
+                            : 'bg-amber-50/70 border-amber-100 hover:border-amber-300 text-amber-800'}"
+                        >
+                          <span class="font-bold">{d.dateLabel}</span>
+                          <span
+                            class="font-semibold text-[10px] flex items-center gap-1 font-sans"
+                          >
+                            {d.reason}
+                          </span>
+                        </button>
+                      {:else}
+                        <div
+                          class="text-center py-8 text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200 font-sans text-xs"
+                        >
+                          🎉 人手不足の日程はありません！
+                        </div>
+                      {/each}
+                    </div>
+                  </div>
+
+                  <!-- 【右側：👥 未提出スタッフ】 -->
+                  <div class="flex flex-col space-y-3">
                     <span
-                      class="bg-error-container/20 text-error px-2.5 py-0.5 rounded-full text-[10px] font-bold"
+                      class="text-xs font-bold text-slate-700 flex items-center gap-1 font-sans"
                     >
-                      {Object.keys(validationResults).filter(
-                        (date) => !validationResults[date].isValid,
-                      ).length}件
+                      ⏳ 未提出のメンバー
+                      <span
+                        class="bg-slate-100 text-slate-600 text-[10px] px-2 py-0.5 rounded-full font-black font-sans"
+                      >
+                        {unsubmittedCount}名
+                      </span>
                     </span>
-                  </div>
-                  <div class="flex justify-between items-center pb-2">
-                    <span class="text-xs font-semibold text-slate-600"
-                      >平均充足率</span
+
+                    <div
+                      class="flex flex-col justify-between flex-grow space-y-4"
                     >
-                    <span class="text-lg font-black text-emerald-600"
-                      >{averageFillRate}%</span
-                    >
+                      <!-- 未提出スタッフバッジ一覧 -->
+                      <div
+                        class="max-h-[160px] overflow-y-auto pr-1 flex flex-wrap gap-1.5 align-content-start hide-scrollbar"
+                      >
+                        {#each unsubmittedMembers as m}
+                          {@const isKitchen = m.roles?.includes("kitchen")}
+                          <span
+                            class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold border border-solid border-slate-200 bg-slate-50 text-slate-700 select-none font-sans"
+                          >
+                            {m.name}
+                            {isKitchen ? "🍳" : "🛎"}
+                          </span>
+                        {:else}
+                          <div
+                            class="w-full text-center py-6 text-emerald-700 font-bold text-xs bg-emerald-50/50 rounded-xl border border-solid border-emerald-100 font-sans"
+                          >
+                            🎉 全員提出済みです！
+                          </div>
+                        {/each}
+                      </div>
+
+                      <!-- 催促通知ボタン -->
+                      <div class="pt-2">
+                        <button
+                          type="button"
+                          on:click={handleSendRemind}
+                          disabled={unsubmittedCount === 0}
+                          class="w-full py-2.5 px-4 bg-primary text-on-primary rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm hover:opacity-90 active:scale-[0.98] border-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-all font-sans"
+                        >
+                          <span class="material-symbols-outlined text-sm"
+                            >notifications_active</span
+                          >
+                          未提出者に催促通知を送る
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
 
-                <!-- シフト公開・下書き戻しボタン -->
+                <!-- シフト公開・下書き戻しボタン (左右全幅の下部に配置) -->
                 <div class="pt-4 border-t border-slate-100">
                   {#if shiftStatus === "published"}
                     <button
                       type="button"
                       on:click={() => revertShiftsToDraft(currentPeriod)}
-                      class="w-full bg-slate-50 hover:bg-slate-100 text-slate-500 border border-slate-200 border-solid h-[50px] rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-[0.98]"
+                      class="w-full bg-slate-50 hover:bg-slate-100 text-slate-500 border border-slate-200 border-solid h-[50px] rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-all active:scale-[0.98] font-sans"
                     >
                       <span class="material-symbols-outlined text-sm">edit</span
                       >
@@ -3660,7 +4005,7 @@
                     <button
                       type="button"
                       on:click={() => publishShifts(currentPeriod)}
-                      class="w-full bg-primary text-on-primary h-[50px] rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-md hover:opacity-90 active:scale-[0.98] border-0 cursor-pointer transition-transform"
+                      class="w-full bg-primary text-on-primary h-[50px] rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-md hover:opacity-90 active:scale-[0.98] border-0 cursor-pointer transition-transform font-sans"
                     >
                       <span class="material-symbols-outlined text-sm"
                         >publish</span
@@ -3670,6 +4015,10 @@
                   {/if}
                 </div>
               </div>
+            </div>
+
+            <div class="flex flex-col gap-6">
+              <!-- シフト公開・下書き戻しボタン -->
 
               <!-- 曜日別一括休業 ＆ 提出締め切り設定パネル -->
               <div
@@ -3786,7 +4135,9 @@
                         >
                           {m.name} 🔍
                         </p>
-                        <p class="text-[12px] text-on-surface-variant flex items-center gap-1.5">
+                        <p
+                          class="text-[12px] text-on-surface-variant flex items-center gap-1.5"
+                        >
                           {#if m.roles?.includes("kitchen") && m.roles?.includes("hall")}
                             🍳厨房 / 🛎ホール
                           {:else if m.roles?.includes("kitchen")}
@@ -3795,37 +4146,84 @@
                             🛎ホール
                           {/if}
                           {#if m.isTrainee}
-                            <span class="bg-amber-100 text-amber-800 text-[9px] px-1.5 py-0.2 rounded font-black select-none">🔰 研修中</span>
+                            <span
+                              class="bg-amber-100 text-amber-800 text-[9px] px-1.5 py-0.2 rounded font-black select-none"
+                              >🔰 研修中</span
+                            >
                           {/if}
                         </p>
                       </div>
                     </button>
-                    <div class="flex flex-wrap items-center gap-3 w-full md:w-auto justify-start md:justify-end pt-2 md:pt-0 border-t border-dashed border-slate-100 md:border-t-0">
+                    <div
+                      class="flex flex-wrap items-center gap-3 w-full md:w-auto justify-start md:justify-end pt-2 md:pt-0 border-t border-dashed border-slate-100 md:border-t-0"
+                    >
                       <!-- 役割(担当)選択セレクト -->
                       <div class="flex flex-col items-start gap-1">
-                        <span class="text-[9px] font-bold text-slate-400 uppercase tracking-wider">担当役割</span>
+                        <span
+                          class="text-[9px] font-bold text-slate-400 uppercase tracking-wider"
+                          >担当役割</span
+                        >
                         <select
                           on:change={(e) => {
-                            const select = /** @type {HTMLSelectElement} */ (e.target);
+                            const select = /** @type {HTMLSelectElement} */ (
+                              e.target
+                            );
                             const val = select.value;
-                            const newRoles = val === "both" ? ["kitchen", "hall"] : [val];
+                            const newRoles =
+                              val === "both" ? ["kitchen", "hall"] : [val];
                             updateMemberRoles(m.id, newRoles);
                           }}
                           class="bg-slate-50 border border-slate-200 text-[10px] font-bold rounded-lg px-2 py-1 text-slate-700 outline-none focus:border-[#0071e3] transition-colors cursor-pointer"
                         >
-                          <option value="hall" selected={m.roles?.includes("hall") && !m.roles?.includes("kitchen")}>🛎 ホール</option>
-                          <option value="kitchen" selected={m.roles?.includes("kitchen") && !m.roles?.includes("hall")}>🍳 キッチン</option>
-                          <option value="both" selected={m.roles?.includes("kitchen") && m.roles?.includes("hall")}>🍳🛎 両方</option>
+                          <option
+                            value="hall"
+                            selected={m.roles?.includes("hall") &&
+                              !m.roles?.includes("kitchen")}>🛎 ホール</option
+                          >
+                          <option
+                            value="kitchen"
+                            selected={m.roles?.includes("kitchen") &&
+                              !m.roles?.includes("hall")}>🍳 キッチン</option
+                          >
+                          <option
+                            value="both"
+                            selected={m.roles?.includes("kitchen") &&
+                              m.roles?.includes("hall")}>🍳🛎 両方</option
+                          >
                         </select>
+                      </div>
+
+                      <!-- 🍻 ハッピーアワー対応トグルボタン -->
+                      <div class="flex flex-col items-start gap-1">
+                        <span
+                          class="text-[9px] font-bold text-slate-400 uppercase tracking-wider"
+                          >土日早出</span
+                        >
+                        <button
+                          type="button"
+                          on:click={() =>
+                            toggleHappyHourAbility(m.id, !m.canHappyHour)}
+                          class="text-[10px] font-extrabold px-2.5 py-1 rounded-lg border border-solid transition-all duration-150 cursor-pointer h-[28px] flex items-center justify-center
+                          {m.canHappyHour
+                            ? 'bg-amber-100 border-amber-300 text-amber-800 hover:bg-amber-200'
+                            : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-slate-100'}"
+                        >
+                          🍻 {m.canHappyHour ? "対応可能" : "不可"}
+                        </button>
                       </div>
 
                       <!-- 研修中(トレーニング)トグルボタン -->
                       <div class="flex flex-col items-start gap-1">
-                        <span class="text-[9px] font-bold text-slate-400 uppercase tracking-wider">研修状況</span>
+                        <span
+                          class="text-[9px] font-bold text-slate-400 uppercase tracking-wider"
+                          >研修状況</span
+                        >
                         <button
                           type="button"
                           on:click={() => {
-                            const nextStatus = m.isTrainee ? "regular" : "trainee";
+                            const nextStatus = m.isTrainee
+                              ? "regular"
+                              : "trainee";
                             updateMemberStatus(m.id, nextStatus);
                           }}
                           class="text-[10px] font-extrabold px-2.5 py-1 rounded-lg border border-solid transition-all duration-150 cursor-pointer h-[28px] flex items-center justify-center
@@ -3839,10 +4237,14 @@
 
                       <!-- 管理者権限 -->
                       <div class="flex flex-col items-start gap-1">
-                        <span class="text-[9px] font-bold text-slate-400 uppercase tracking-wider">権限</span>
+                        <span
+                          class="text-[9px] font-bold text-slate-400 uppercase tracking-wider"
+                          >権限</span
+                        >
                         <button
                           type="button"
-                          on:click={() => toggleAdminPrivilege(m.id, !m.isAdmin)}
+                          on:click={() =>
+                            toggleAdminPrivilege(m.id, !m.isAdmin)}
                           class="text-[10px] font-extrabold px-2.5 py-1.5 rounded-lg border border-solid transition-all duration-150 cursor-pointer h-[28px] flex items-center justify-center
                           {m.isAdmin
                             ? 'bg-amber-500 hover:bg-amber-600 border-amber-600 text-white'
@@ -3854,7 +4256,10 @@
 
                       <!-- 引退にするボタン -->
                       <div class="flex flex-col items-start gap-1">
-                        <span class="text-[9px] md:text-transparent select-none hidden md:inline">-</span>
+                        <span
+                          class="text-[9px] md:text-transparent select-none hidden md:inline"
+                          >-</span
+                        >
                         <button
                           type="button"
                           on:click={() => toggleMemberActive(m.id, false)}
@@ -3921,7 +4326,7 @@
                               `${m.name}さんのデータを完全に削除しますか？`,
                             )
                           ) {
-                            // 既存仕様
+                            deleteMember(m.id);
                           }
                         }}
                         class="text-error hover:bg-error/10 p-1.5 rounded-full transition-colors flex items-center justify-center border-0 bg-transparent cursor-pointer"
@@ -4113,8 +4518,15 @@
                   </p>
                 {:else}
                   {#each dateShifts as s}
-                    {@const m = members.find((mem) => mem.id === s.member_id)}
+                    {@const m = members.find((mem) => mem.id == s.member_id)}
                     {@const isTrainee = m?.status === "trainee"}
+                    {@const isWeekendDay = (() => {
+                      const dow = new Date(selectedEditDate + 'T00:00:00').getDay();
+                      return dow === 0 || dow === 6;
+                    })()}
+                    {@const defaultTimeForInput = s.role === "kitchen" 
+                      ? (isWeekendDay && m?.canHappyHour ? "15:00" : "17:00") 
+                      : "17:30"}
                     <div
                       class="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-100 gap-2"
                     >
@@ -4155,26 +4567,28 @@
                           >
                         </button>
 
-                        <button
-                          on:click={async () => {
-                            const nextTime =
-                              s.start_time === "17:00" ? "17:30" : "17:00";
+                        <input
+                          type="time"
+                          value={s.start_time || defaultTimeForInput}
+                          on:change={async (e) => {
+                            const target = /** @type {HTMLInputElement} */ (
+                              e.target
+                            );
+                            const newTime = target.value;
                             const updatedShifts = shifts.map((item) => {
                               if (
                                 item.date === selectedEditDate &&
                                 item.member_id === s.member_id
                               ) {
-                                return { ...item, start_time: nextTime };
+                                return { ...item, start_time: newTime };
                               }
                               return item;
                             });
                             shifts = updatedShifts;
                             await saveShiftsManually(updatedShifts);
                           }}
-                          class="bg-white border border-slate-200 hover:bg-slate-50 text-[10px] font-bold px-2 py-1.5 rounded-lg text-slate-700 font-mono"
-                        >
-                          ⏱️ {s.start_time}
-                        </button>
+                          class="bg-white border border-slate-200 hover:bg-slate-50 text-[10px] font-bold px-1.5 py-1 rounded-lg text-slate-700 font-mono focus:outline-none focus:border-primary cursor-pointer w-[75px] md:w-[85px] text-center"
+                        />
 
                         <button
                           on:click={() =>
