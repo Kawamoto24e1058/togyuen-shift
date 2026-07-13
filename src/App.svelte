@@ -2895,7 +2895,7 @@
           <!-- 2カラムレイアウト (PCでの表示もレスポンシブにサポート) -->
           <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
             <!-- 左側: カレンダー (3カラム分) -->
-            <div class="lg:col-span-3 space-y-6">
+            <div class="lg:col-span-3 space-y-6 min-w-0 w-full overflow-hidden">
               <section
                 class="bg-white rounded-[20px] p-md shadow-soft border border-slate-100"
               >
@@ -3245,7 +3245,7 @@
           <!-- 2カラムレイアウト -->
           <div class="grid grid-cols-1 lg:grid-cols-4 gap-8 pb-32 md:pb-8">
             <!-- 左側: カレンダー & デフォルト設定 -->
-            <div class="lg:col-span-3 space-y-6">
+            <div class="lg:col-span-3 space-y-6 min-w-0 w-full overflow-hidden">
               <!-- 未入力日のデフォルト設定 -->
               <div
                 class="bg-white p-5 rounded-[20px] border border-slate-100 shadow-sm space-y-3"
@@ -3650,7 +3650,7 @@
             in:fade={{ duration: 150 }}
           >
             <!-- カレンダー (2カラム分) -->
-            <div class="lg:col-span-2 space-y-6">
+            <div class="lg:col-span-2 space-y-6 min-w-0 w-full overflow-hidden">
               <!-- Full Month Calendar Card -->
               <div
                 class="bg-surface-container-lowest rounded-[24px] p-md shadow-soft border border-slate-100 overflow-hidden"
