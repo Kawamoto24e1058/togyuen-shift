@@ -2897,7 +2897,7 @@
             <!-- 左側: カレンダー (3カラム分) -->
             <div class="lg:col-span-3 space-y-6 min-w-0 w-full overflow-hidden">
               <section
-                class="bg-white rounded-[20px] p-md shadow-soft border border-slate-100"
+                class="bg-white rounded-[20px] p-3 md:p-6 shadow-soft border border-slate-100"
               >
                 <div class="grid grid-cols-7 calendar-grid mb-2">
                   {#each CALENDAR_HEADERS as h}
@@ -3297,7 +3297,7 @@
 
               <!-- Calendar Card (Google Stitch デザイン) -->
               <div
-                class="bg-surface-container-lowest rounded-[20px] p-5 shadow-sm border border-slate-100"
+                class="bg-surface-container-lowest rounded-[20px] p-3 md:p-5 shadow-sm border border-slate-100"
               >
                 <div class="grid grid-cols-7 calendar-grid mb-3">
                   {#each CALENDAR_HEADERS as h}
@@ -3653,7 +3653,7 @@
             <div class="lg:col-span-2 space-y-6 min-w-0 w-full overflow-hidden">
               <!-- Full Month Calendar Card -->
               <div
-                class="bg-surface-container-lowest rounded-[24px] p-md shadow-soft border border-slate-100 overflow-hidden"
+                class="bg-surface-container-lowest rounded-[24px] p-3 md:p-6 shadow-soft border border-slate-100 overflow-hidden"
               >
                 <div class="flex items-center justify-between mb-lg">
                   <div class="flex items-center gap-xs">
@@ -3743,7 +3743,7 @@
                         selectedEditDate = d.dateStr;
                       }}
                       disabled={d.isOtherMonth}
-                      class="min-h-[80px] md:min-h-[120px] p-1.5 rounded-lg text-left outline-none transition-all flex flex-col justify-between cursor-pointer border border-solid
+                      class="min-h-[80px] md:min-h-[120px] p-1 md:p-1.5 rounded-lg text-left outline-none transition-all flex flex-col justify-between cursor-pointer border border-solid
                       {d.isOtherMonth
                         ? 'bg-surface-container-low opacity-40 pointer-events-none border-transparent'
                         : ''}
@@ -3807,16 +3807,16 @@
                                   ? "bg-amber-50 border-amber-300 text-amber-900 shadow-sm"
                                   : "bg-primary-container/10 border-primary-container/30 text-primary"}
                                 <div
-                                  class="flex flex-col items-center justify-center p-0.5 min-w-[26px] md:min-w-[30px] h-[26px] md:h-[30px] {badgeColor} border border-solid rounded transition-all select-none"
+                                  class="flex flex-col items-center justify-center p-0.5 min-w-[21px] md:min-w-[30px] h-[22px] md:h-[30px] {badgeColor} border border-solid rounded transition-all select-none"
                                   title={`${s.member_name} (${s.start_time}〜)`}
                                 >
                                   <span
-                                    class="text-[10px] md:text-[11px] font-black leading-none"
+                                    class="text-[8.5px] md:text-[11px] font-black leading-none"
                                   >
                                     {getMemberInitial(s.member_name, members)}
                                   </span>
                                   <span
-                                    class="text-[7.5px] md:text-[8px] leading-none mt-0.5 font-mono font-bold {isModified
+                                    class="text-[6.5px] md:text-[8px] leading-none mt-0.5 font-mono font-bold {isModified
                                       ? 'text-rose-600 font-black'
                                       : 'text-slate-500'}"
                                   >
@@ -3843,16 +3843,16 @@
                                   ? "bg-amber-50 border-amber-300 text-amber-900 shadow-sm"
                                   : "bg-tertiary-container/10 border-tertiary-container/30 text-tertiary"}
                                 <div
-                                  class="flex flex-col items-center justify-center p-0.5 min-w-[26px] md:min-w-[30px] h-[26px] md:h-[30px] {badgeColor} border border-solid rounded transition-all select-none"
+                                  class="flex flex-col items-center justify-center p-0.5 min-w-[21px] md:min-w-[30px] h-[22px] md:h-[30px] {badgeColor} border border-solid rounded transition-all select-none"
                                   title={`${s.member_name} (${s.start_time}〜)`}
                                 >
                                   <span
-                                    class="text-[10px] md:text-[11px] font-black leading-none"
+                                    class="text-[8.5px] md:text-[11px] font-black leading-none"
                                   >
                                     {getMemberInitial(s.member_name, members)}
                                   </span>
                                   <span
-                                    class="text-[7.5px] md:text-[8px] leading-none mt-0.5 font-mono font-bold {isModified
+                                    class="text-[6.5px] md:text-[8px] leading-none mt-0.5 font-mono font-bold {isModified
                                       ? 'text-rose-600 font-black'
                                       : 'text-slate-500'}"
                                   >
@@ -4883,7 +4883,13 @@
   :global(.calendar-grid) {
     display: grid !important;
     grid-template-columns: repeat(7, 1fr) !important;
-    gap: 12px !important;
+    gap: 4px !important;
+  }
+
+  @media (min-width: 768px) {
+    :global(.calendar-grid) {
+      gap: 12px !important;
+    }
   }
 
   /* マテリアルシンボルアイコンの適用 */
