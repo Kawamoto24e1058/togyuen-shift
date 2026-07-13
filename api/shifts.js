@@ -1,5 +1,6 @@
 // api/shifts.js
 import { db } from './_lib/firebase-admin.js';
+import { generateShift } from './_lib/shift-solver.js';
 
 export default async function handler(req, res) {
   // CORSヘッダー設定
@@ -185,9 +186,7 @@ export default async function handler(req, res) {
       // JS ソルバーで直接シフト生成（Python 不要）
       // -------------------------------------------------------
       console.info('[API Shift Generate] Running JS shift solver...');
-      // ホットリロード時のキャッシュバグを回避するため、タイムスタンプ付きで動的インポート
-      const solverModule = await import(`./_lib/shift-solver.js?t=${Date.now()}`);
-      const shifts = solverModule.generateShift({
+      const shifts = generateShift({
         start_date: startDateStr,
         end_date: endDateStr,
         members,
