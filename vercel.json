@@ -6,6 +6,7 @@
     { "source": "/api/members/archive", "destination": "/api/members?action=archive" },
     { "source": "/api/members/update-admin", "destination": "/api/members?action=update-admin" },
     { "source": "/api/shift-settings", "destination": "/api/shift-settings" },
+    { "source": "/api/special-periods", "destination": "/api/special-periods" },
     { "source": "/callback", "destination": "/index.html" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],

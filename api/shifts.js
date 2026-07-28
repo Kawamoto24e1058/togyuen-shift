@@ -23,7 +23,7 @@ export default async function handler(req, res) {
     const period = req.query.period || (req.body && req.body.period) || '2026-06';
     if (req.method === 'GET') {
       try {
-        res.setHeader('Cache-Control', 's-maxage=10, stale-while-revalidate=59');
+        res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
         console.info(`[API Shift Status GET] Fetching status for period: ${period}`);
         const docRef = db.collection('shift_status').doc(period);
         const doc = await docRef.get();
@@ -114,6 +114,29 @@ export default async function handler(req, res) {
           startDateStr = `${parts[0]}-${parts[1]}-01`;
           endDateStr = `${parts[0]}-${parts[1]}-${String(daysInMonth).padStart(2, '0')}`;
         }
+      }
+
+      // 有効な特別枠との重複防止: 隣接通常期間の開始日自動補正
+      try {
+        const specialSnap = await db.collection('special_shift_periods').where('isActive', '==', true).get();
+        specialSnap.forEach(doc => {
+          const sp = doc.data();
+          if (sp.startDate && sp.endDate) {
+            // 例: 特別枠 8/1〜8/16 で通常期間 8/16〜8/31 (8-B) の場合、startDateStr を 8/17 に補正
+            if (sp.startDate <= endDateStr && sp.endDate >= startDateStr) {
+              const spEndObj = new Date(sp.endDate);
+              const nextDayObj = new Date(spEndObj.getFullYear(), spEndObj.getMonth(), spEndObj.getDate() + 1);
+              const nextDayStr = `${nextDayObj.getFullYear()}-${String(nextDayObj.getMonth() + 1).padStart(2, '0')}-${String(nextDayObj.getDate()).padStart(2, '0')}`;
+              
+              if (nextDayStr > startDateStr && nextDayStr <= endDateStr) {
+                console.info(`[API Shift Generate] Offset startDateStr from ${startDateStr} to ${nextDayStr} due to special period (${sp.title}: ${sp.startDate} ~ ${sp.endDate})`);
+                startDateStr = nextDayStr;
+              }
+            }
+          }
+        });
+      } catch (spErr) {
+        console.warn('[API Shift Generate] Warning: Failed to check special periods for date offset:', spErr);
       }
 
       const membersSnap = await db.collection('members').get();
@@ -299,6 +322,12 @@ export default async function handler(req, res) {
           }, { merge: true });
         }
       }
+
+      // 対象期間内の個別シフトアサインデータ (shifts) も status = 'published' を一括書き込み
+      const shiftsSnap = await db.collection('shifts').where('period', '==', period).get();
+      shiftsSnap.forEach(doc => {
+        batch.set(doc.ref, { status: 'published', isPublished: true, publishedAt: nowIso }, { merge: true });
+      });
 
       await batch.commit();
 

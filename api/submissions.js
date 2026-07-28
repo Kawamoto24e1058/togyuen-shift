@@ -43,16 +43,47 @@ export default async function handler(req, res) {
         return res.status(404).send('指定されたスタッフが見つかりません。');
       }
 
-      // 動的締め切り計算 (特別設定優先 -> 無ければデフォルト当月後半Bなら10日、翌月前半Aなら25日)
+      // 動的締め切り計算 (特別枠優先 -> オーバーライド設定優先 -> デフォルト)
       const getDeadlineForPeriod = async (periodStr) => {
         try {
+          // 1. 有効な特別募集枠 (special_shift_periods) の照会
+          const specialSnap = await db.collection('special_shift_periods').where('isActive', '==', true).get();
+          if (!specialSnap.empty) {
+            let activeSpecialDeadline = null;
+            specialSnap.forEach(doc => {
+              const data = doc.data();
+              if (data.deadlineDate) {
+                // periodStr (例: 2026-08-A) が特別枠の日付範囲と重なるかチェック
+                if (data.startDate && data.endDate) {
+                  const pYear = periodStr.substring(0, 4);
+                  const pMonth = periodStr.substring(5, 7);
+                  const pHalf = periodStr.substring(8);
+                  const daysInM = new Date(Number(pYear), Number(pMonth), 0).getDate();
+                  const pStart = `${pYear}-${pMonth}-${pHalf === 'A' ? '01' : '16'}`;
+                  const pEnd = `${pYear}-${pMonth}-${pHalf === 'A' ? '15' : String(daysInM).padStart(2, '0')}`;
+
+                  if (data.startDate <= pEnd && data.endDate >= pStart) {
+                    activeSpecialDeadline = data.deadlineDate;
+                  }
+                } else {
+                  activeSpecialDeadline = data.deadlineDate;
+                }
+              }
+            });
+            if (activeSpecialDeadline) {
+              console.info(`[API Submissions] Using special period deadline for ${periodStr}: ${activeSpecialDeadline}`);
+              return new Date(activeSpecialDeadline);
+            }
+          }
+
+          // 2. 個別オーバーライド (shift_settings) の照会
           const settingDoc = await db.collection('shift_settings').doc(periodStr).get();
           if (settingDoc.exists && settingDoc.data().isCustom !== false && settingDoc.data().deadlineDate) {
             console.info(`[API Submissions] Using custom deadline for ${periodStr}: ${settingDoc.data().deadlineDate}`);
             return new Date(settingDoc.data().deadlineDate);
           }
         } catch (e) {
-          console.warn('[API Submissions] Failed to fetch custom shift settings, using default deadline:', e);
+          console.warn('[API Submissions] Failed to fetch special shift settings, using default deadline:', e);
         }
 
         const parts = periodStr.split("-");

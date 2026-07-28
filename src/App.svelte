@@ -505,13 +505,7 @@
   }
 
   // 選択された日付のパブリッシュ（公開）状況をリアクティブに判定
-  $: isSelectedDatePublished = (() => {
-    if (!selectedCalendarDate) return false;
-    const cellDayNum = Number(selectedCalendarDate.split("-")[2]);
-    const cellPeriodHalf = cellDayNum <= 15 ? "A" : "B";
-    const cellStatus = cellPeriodHalf === "A" ? shiftStatusA : shiftStatusB;
-    return cellStatus === "published";
-  })();
+  $: isSelectedDatePublished = isDatePublished(selectedCalendarDate);
 
   // 選択日におけるアサインシフト一覧
   $: selectedDayShifts = shifts.filter((s) => s.date === selectedCalendarDate);
@@ -854,6 +848,151 @@
   let customStartDateInput = "";
   let customEndDateInput = "";
   let customNoteInput = "";
+
+  // 大型連休等の特別シフト募集枠 (special_shift_periods) ステート
+  /** @type {any[]} */
+  let specialPeriodsList = [];
+  let specialTitleInput = "";
+  let specialStartDateInput = "";
+  let specialEndDateInput = "";
+  let specialDeadlineInput = "";
+
+  async function fetchSpecialPeriods() {
+    try {
+      const res = await fetch("/api/special-periods");
+      if (res.ok) {
+        specialPeriodsList = await res.json();
+        try {
+          localStorage.setItem("cachedSpecialPeriods", JSON.stringify(specialPeriodsList));
+        } catch (e) {}
+      }
+    } catch (e) {
+      console.error("[App] Failed to load special periods:", e);
+    }
+  }
+
+  async function saveSpecialPeriod(item = null) {
+    const title = item ? item.title : specialTitleInput.trim();
+    const startDate = item ? item.startDate : specialStartDateInput.trim();
+    const endDate = item ? item.endDate : specialEndDateInput.trim();
+    const deadlineDate = item ? item.deadlineDate : (specialDeadlineInput ? new Date(specialDeadlineInput).toISOString() : "");
+    const isActive = item ? !item.isActive : true;
+    const id = item ? item.id : null;
+
+    if (!title || !startDate || !endDate || !deadlineDate) {
+      triggerToast("⚠️ 募集枠名、対象開始日、終了日、締切日時をすべて入力してください。");
+      return;
+    }
+
+    try {
+      const res = await fetch("/api/special-periods", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, title, startDate, endDate, deadlineDate, isActive }),
+      });
+      if (res.ok) {
+        triggerToast(`✅ 特別シフト募集枠「${title}」を${item ? '更新' : '作成'}しました！`);
+        if (!item) {
+          specialTitleInput = "";
+          specialStartDateInput = "";
+          specialEndDateInput = "";
+          specialDeadlineInput = "";
+        }
+        await fetchSpecialPeriods();
+      } else {
+        throw new Error(await res.text());
+      }
+    } catch (error) {
+      const err = /** @type {any} */ (error);
+      triggerToast(`⚠️ 保存エラー: ${err.message}`);
+    }
+  }
+
+  async function deleteSpecialPeriod(id) {
+    if (!id || !confirm("この特別シフト募集枠を削除しますか？")) return;
+    try {
+      const res = await fetch("/api/special-periods", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "delete", id }),
+      });
+      if (res.ok) {
+        triggerToast("🗑 特別シフト募集枠を削除しました。");
+        await fetchSpecialPeriods();
+      }
+    } catch (error) {
+      const err = /** @type {any} */ (error);
+      triggerToast(`⚠️ 削除エラー: ${err.message}`);
+    }
+  }
+
+  // 衝突防止ユーティリティ: 隣接する通常期間の自動範囲調整 (重複防止)
+  function getEffectiveDateRangeForPeriod(periodStr) {
+    if (!periodStr) return { startDate: "", endDate: "" };
+    const parts = periodStr.split("-");
+    if (parts.length < 3) return { startDate: "", endDate: "" };
+    const year = Number(parts[0]);
+    const month = Number(parts[1]);
+    const half = parts[2];
+
+    const daysInMonth = new Date(year, month, 0).getDate();
+    let startDate = `${parts[0]}-${parts[1]}-${half === 'B' ? '16' : '01'}`;
+    let endDate = `${parts[0]}-${parts[1]}-${half === 'A' ? '15' : String(daysInMonth).padStart(2, '0')}`;
+
+    // 有効な特別枠が存在する場合、特別枠終了日の翌日に開始日を繰り下げ補正
+    const activeSpecial = specialPeriodsList.find(
+      (sp) => sp.isActive !== false && sp.startDate <= endDate && sp.endDate >= startDate
+    );
+    if (activeSpecial && activeSpecial.endDate) {
+      const spEndObj = new Date(activeSpecial.endDate);
+      const nextDayObj = new Date(spEndObj.getFullYear(), spEndObj.getMonth(), spEndObj.getDate() + 1);
+      const nextDayStr = `${nextDayObj.getFullYear()}-${String(nextDayObj.getMonth() + 1).padStart(2, "0")}-${String(nextDayObj.getDate()).padStart(2, "0")}`;
+      if (nextDayStr > startDate && nextDayStr <= endDate) {
+        startDate = nextDayStr;
+      }
+    }
+
+    return { startDate, endDate };
+  }
+
+  // 衝突防止ユーティリティ: 指定日または指定期間に適用される実効締め切り情報
+  function getEffectiveDeadlineForDate(dateStr) {
+    if (!dateStr) return { deadlineObj: null, isSpecial: false, title: "" };
+
+    // 1. 有効な特別募集枠の適用判定 (最優先)
+    const activeSpecial = specialPeriodsList.find(
+      (sp) => sp.isActive !== false && sp.startDate <= dateStr && sp.endDate >= dateStr
+    );
+    if (activeSpecial && activeSpecial.deadlineDate) {
+      return {
+        deadlineObj: new Date(activeSpecial.deadlineDate),
+        isSpecial: true,
+        title: activeSpecial.title || "特別シフト募集枠",
+        startDate: activeSpecial.startDate,
+        endDate: activeSpecial.endDate
+      };
+    }
+
+    // 2. 個別オーバーライド (shift_settings) の判定
+    const periodKey = getPeriodForDate(dateStr);
+    const customSetting = shiftSettingsMap[periodKey];
+    if (customSetting && customSetting.isCustom !== false && customSetting.deadlineDate) {
+      return {
+        deadlineObj: new Date(customSetting.deadlineDate),
+        isSpecial: true,
+        title: customSetting.note || "特別設定",
+        startDate: customSetting.customStartDate,
+        endDate: customSetting.customEndDate
+      };
+    }
+
+    // 3. 通常動的締め切りロジック
+    return {
+      deadlineObj: getDeadlineDateForPeriod(periodKey),
+      isSpecial: false,
+      title: ""
+    };
+  }
 
   async function fetchShiftSettings() {
     try {
@@ -1381,6 +1520,12 @@
 
   onMount(() => {
     async function init() {
+      // 0. SWRローカルキャッシュの即時復元
+      try {
+        const cachedP = localStorage.getItem("cachedSpecialPeriods");
+        if (cachedP) specialPeriodsList = JSON.parse(cachedP);
+      } catch (e) {}
+
       // 1. ローカルストレージから既存のサインインセッションを即座に復元 (ファーストペイント最速化)
       const cachedUser = localStorage.getItem("currentUser");
       if (cachedUser) {
@@ -1422,6 +1567,7 @@
           loadShifts(currentPeriod),
           fetchDeadline(),
           fetchShiftSettings(),
+          fetchSpecialPeriods(),
         ]);
 
         // 最新のメンバー情報が得られたらキャッシュを検証・最新化
@@ -1997,26 +2143,64 @@
     }
   }
 
+  /** @type {Record<string, string>} */
+  let shiftStatusMapByPeriod = {};
+
+  function getPeriodForDate(dateStr) {
+    if (!dateStr) return "";
+    const parts = dateStr.split("-");
+    if (parts.length < 3) return "";
+    const year = parts[0];
+    const month = parts[1];
+    const day = Number(parts[2]);
+    const half = day <= 15 ? "A" : "B";
+    return `${year}-${month}-${half}`;
+  }
+
+  function isDatePublished(dateStr) {
+    if (!dateStr) return false;
+    const periodKey = getPeriodForDate(dateStr);
+    return shiftStatusMapByPeriod[periodKey] === "published";
+  }
+
   async function fetchShiftStatus(targetPeriod = "2026-06") {
     const baseMonth = targetPeriod.substring(0, 7); // e.g. "2026-06"
     try {
-      const [resA, resB] = await Promise.all([
-        fetch(`/api/shifts/status?period=${baseMonth}-A`),
-        fetch(`/api/shifts/status?period=${baseMonth}-B`),
-      ]);
-      if (resA.ok) {
-        const dataA = await resA.json();
-        shiftStatusA = dataA.status || "draft";
-      } else {
-        shiftStatusA = "draft";
+      const dateParts = baseMonth.split("-");
+      const year = Number(dateParts[0]);
+      const month = Number(dateParts[1]);
+
+      const prevMonthDate = new Date(year, month - 2, 1);
+      const nextMonthDate = new Date(year, month, 1);
+
+      const prevMonthStr = `${prevMonthDate.getFullYear()}-${String(prevMonthDate.getMonth() + 1).padStart(2, "0")}`;
+      const nextMonthStr = `${nextMonthDate.getFullYear()}-${String(nextMonthDate.getMonth() + 1).padStart(2, "0")}`;
+
+      const periodsToFetch = [
+        `${prevMonthStr}-B`,
+        `${baseMonth}-A`,
+        `${baseMonth}-B`,
+        `${nextMonthStr}-A`,
+      ];
+
+      const results = await Promise.all(
+        periodsToFetch.map((p) =>
+          fetch(`/api/shifts/status?period=${p}&t=${Date.now()}`),
+        ),
+      );
+
+      for (let i = 0; i < periodsToFetch.length; i++) {
+        const res = results[i];
+        const p = periodsToFetch[i];
+        if (res.ok) {
+          const data = await res.json();
+          shiftStatusMapByPeriod[p] = data.status || "draft";
+        }
       }
-      if (resB.ok) {
-        const dataB = await resB.json();
-        shiftStatusB = dataB.status || "draft";
-      } else {
-        shiftStatusB = "draft";
-      }
-      // Sync shiftStatus to the current active period's status
+
+      shiftStatusA = shiftStatusMapByPeriod[`${baseMonth}-A`] || "draft";
+      shiftStatusB = shiftStatusMapByPeriod[`${baseMonth}-B`] || "draft";
+
       if (targetPeriod.endsWith("-A")) {
         shiftStatus = shiftStatusA;
       } else if (targetPeriod.endsWith("-B")) {
@@ -2024,6 +2208,7 @@
       } else {
         shiftStatus = shiftStatusA;
       }
+      shiftStatusMapByPeriod = { ...shiftStatusMapByPeriod };
     } catch (e) {
       console.error("[App] Failed to load shift status:", e);
     }
@@ -2039,14 +2224,17 @@
       if (res.ok) {
         const data = await res.json();
         shiftStatus = data.status;
-        if (targetPeriod.endsWith("-A")) {
-          shiftStatusA = data.status;
-        } else if (targetPeriod.endsWith("-B")) {
-          shiftStatusB = data.status;
+        if (targetPeriod.endsWith("-A") || targetPeriod.endsWith("-B")) {
+          shiftStatusMapByPeriod[targetPeriod] = "published";
         } else {
-          shiftStatusA = data.status;
-          shiftStatusB = data.status;
+          shiftStatusMapByPeriod[`${targetPeriod}-A`] = "published";
+          shiftStatusMapByPeriod[`${targetPeriod}-B`] = "published";
+          shiftStatusMapByPeriod[targetPeriod] = "published";
         }
+        shiftStatusA = shiftStatusMapByPeriod[`${targetPeriod.substring(0, 7)}-A`] || "published";
+        shiftStatusB = shiftStatusMapByPeriod[`${targetPeriod.substring(0, 7)}-B`] || "published";
+        shiftStatusMapByPeriod = { ...shiftStatusMapByPeriod };
+
         triggerToast("💚 シフトを確定公開しました！");
         // 最新ステータスとシフトアサインを即時再取得・UI反映
         await Promise.all([
@@ -2073,14 +2261,17 @@
       if (res.ok) {
         const data = await res.json();
         shiftStatus = data.status;
-        if (targetPeriod.endsWith("-A")) {
-          shiftStatusA = data.status;
-        } else if (targetPeriod.endsWith("-B")) {
-          shiftStatusB = data.status;
+        if (targetPeriod.endsWith("-A") || targetPeriod.endsWith("-B")) {
+          shiftStatusMapByPeriod[targetPeriod] = "draft";
         } else {
-          shiftStatusA = data.status;
-          shiftStatusB = data.status;
+          shiftStatusMapByPeriod[`${targetPeriod}-A`] = "draft";
+          shiftStatusMapByPeriod[`${targetPeriod}-B`] = "draft";
+          shiftStatusMapByPeriod[targetPeriod] = "draft";
         }
+        shiftStatusA = shiftStatusMapByPeriod[`${targetPeriod.substring(0, 7)}-A`] || "draft";
+        shiftStatusB = shiftStatusMapByPeriod[`${targetPeriod.substring(0, 7)}-B`] || "draft";
+        shiftStatusMapByPeriod = { ...shiftStatusMapByPeriod };
+
         triggerToast("✏️ シフトを下書き状態に戻しました。");
         // 最新ステータスとシフトアサインを即時再取得・UI反映
         await Promise.all([
@@ -3116,9 +3307,7 @@
                     {@const isClosed = isRegularClosed || isSpecialClosed}
                     {@const cellDayNum = Number(d.dateStr.split("-")[2])}
                     {@const cellPeriodHalf = cellDayNum <= 15 ? "A" : "B"}
-                    {@const cellStatus =
-                      cellPeriodHalf === "A" ? shiftStatusA : shiftStatusB}
-                    {@const isCellPublished = cellStatus === "published"}
+                    {@const isCellPublished = isDatePublished(d.dateStr)}
                     {@const isVisibleToUser =
                       currentUser?.isAdmin || isCellPublished}
 
@@ -3504,6 +3693,8 @@
 
                 <div class="grid grid-cols-7 calendar-grid">
                   {#each GRID_CELLS as d}
+                    {@const effectiveRange = getEffectiveDateRangeForPeriod(currentPeriod)}
+                    {@const isOutOfEffectiveRange = Boolean(effectiveRange.startDate && effectiveRange.endDate && (d.dateStr < effectiveRange.startDate || d.dateStr > effectiveRange.endDate))}
                     {@const isRegularClosed = d.isRegularClosed}
                     {@const isClosed =
                       isRegularClosed || specialHolidays.includes(d.dateStr)}
@@ -3516,14 +3707,14 @@
                     <button
                       type="button"
                       on:click={() => {
-                        if (!d.isOtherMonth && !isClosed && !isLocked) {
+                        if (!d.isOtherMonth && !isClosed && !isLocked && !isOutOfEffectiveRange) {
                           handleToggleAvailability(d.dateStr);
                         }
                       }}
-                      disabled={d.isOtherMonth || isClosed || isLocked}
+                      disabled={d.isOtherMonth || isClosed || isLocked || isOutOfEffectiveRange}
                       class="h-14 flex flex-col items-center justify-center rounded-xl cursor-pointer transition-all active:scale-90 border border-solid select-none outline-none
-                      {d.isOtherMonth ? 'opacity-0 pointer-events-none' : ''}
-                      {!d.isOtherMonth && isClosed
+                      {d.isOtherMonth || isOutOfEffectiveRange ? 'opacity-25 bg-slate-100/50 pointer-events-none' : ''}
+                      {!d.isOtherMonth && !isOutOfEffectiveRange && isClosed
                         ? 'bg-slate-50 text-slate-400 border-slate-100/50'
                         : ''}
                       {!d.isOtherMonth && !isClosed && isAvail
@@ -4218,6 +4409,140 @@
             </div>
 
             <div class="flex flex-col gap-6">
+              <!-- 🌟 大型連休・特別シフト募集枠の管理パネル (お盆・GW・年末年始等) -->
+              <div
+                class="bg-white p-6 rounded-[20px] border border-orange-200 shadow-soft space-y-4 bg-gradient-to-br from-orange-50/30 via-white to-amber-50/20 font-sans"
+              >
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <span class="text-2xl">🌟</span>
+                    <div>
+                      <h4 class="text-xs font-black text-slate-800 tracking-tight">
+                        大型連休・特別シフト募集枠の管理 (お盆・GW・年末年始等)
+                      </h4>
+                      <p class="text-[10px] text-slate-500 font-medium">
+                        対象日付範囲と特別希望締切日時を指定して、専用の募集枠を作成・制御します
+                      </p>
+                    </div>
+                  </div>
+                  <span
+                    class="px-2.5 py-1 rounded-full text-[9px] font-black bg-orange-500 text-white shadow-xs"
+                  >
+                    特別募集枠 {specialPeriodsList.filter(s => s.isActive !== false).length}件有効
+                  </span>
+                </div>
+
+                <!-- 新規作成フォーム -->
+                <div class="bg-white/80 p-4 rounded-xl border border-orange-100 space-y-3">
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label for="special-title-input" class="text-[10px] font-bold text-slate-700 block mb-1">
+                        🏷 募集枠タイトル
+                      </label>
+                      <input
+                        id="special-title-input"
+                        type="text"
+                        placeholder="例：お盆期間特別シフト"
+                        bind:value={specialTitleInput}
+                        class="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-white focus:outline-none focus:border-orange-500 box-border"
+                      />
+                    </div>
+                    <div>
+                      <label for="special-deadline-input" class="text-[10px] font-bold text-slate-700 block mb-1">
+                        ⏰ 希望提出締切日時
+                      </label>
+                      <input
+                        id="special-deadline-input"
+                        type="datetime-local"
+                        bind:value={specialDeadlineInput}
+                        class="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-white font-mono focus:outline-none focus:border-orange-500 box-border"
+                      />
+                    </div>
+                  </div>
+
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label for="special-start-date" class="text-[10px] font-bold text-slate-700 block mb-1">
+                        📅 対象開始日
+                      </label>
+                      <input
+                        id="special-start-date"
+                        type="date"
+                        bind:value={specialStartDateInput}
+                        class="w-full text-xs p-2 rounded-xl border border-slate-200 bg-white font-mono focus:outline-none focus:border-orange-500 box-border"
+                      />
+                    </div>
+                    <div>
+                      <label for="special-end-date" class="text-[10px] font-bold text-slate-700 block mb-1">
+                        📅 対象終了日
+                      </label>
+                      <input
+                        id="special-end-date"
+                        type="date"
+                        bind:value={specialEndDateInput}
+                        class="w-full text-xs p-2 rounded-xl border border-slate-200 bg-white font-mono focus:outline-none focus:border-orange-500 box-border"
+                      />
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    on:click={() => saveSpecialPeriod()}
+                    class="w-full bg-gradient-to-r from-orange-500 to-amber-500 text-white font-bold text-xs py-2.5 rounded-xl border-0 shadow-xs hover:opacity-90 active:scale-98 cursor-pointer transition-all flex items-center justify-center gap-1 mt-2"
+                  >
+                    <span class="material-symbols-outlined text-sm">add_circle</span>
+                    <span>特別募集枠を新規作成</span>
+                  </button>
+                </div>
+
+                <!-- 登録済み募集枠リスト -->
+                {#if specialPeriodsList.length > 0}
+                  <div class="space-y-2 pt-2">
+                    <p class="text-[10px] font-bold text-slate-500">登録済みの特別募集枠一覧</p>
+                    <div class="space-y-2 max-h-[220px] overflow-y-auto pr-1 hide-scrollbar">
+                      {#each specialPeriodsList as sp}
+                        <div
+                          class="flex items-center justify-between p-3 rounded-xl border transition-all {sp.isActive !== false ? 'bg-white border-orange-200 shadow-xs' : 'bg-slate-50 border-slate-200 opacity-60'}"
+                        >
+                          <div class="space-y-0.5">
+                            <div class="flex items-center gap-2">
+                              <span class="font-bold text-xs text-slate-800">{sp.title}</span>
+                              <span class="text-[9px] font-bold px-2 py-0.5 rounded-full {sp.isActive !== false ? 'bg-orange-100 text-orange-700' : 'bg-slate-200 text-slate-600'}">
+                                {sp.isActive !== false ? '有効' : '無効'}
+                              </span>
+                            </div>
+                            <p class="text-[10px] text-slate-500 font-mono">
+                              期間: {sp.startDate} 〜 {sp.endDate}
+                            </p>
+                            <p class="text-[10px] text-orange-600 font-medium">
+                              締切: {new Date(sp.deadlineDate).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                            </p>
+                          </div>
+
+                          <div class="flex items-center gap-2">
+                            <button
+                              type="button"
+                              on:click={() => saveSpecialPeriod(sp)}
+                              class="text-[10px] font-bold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 cursor-pointer"
+                            >
+                              {sp.isActive !== false ? '無効にする' : '有効にする'}
+                            </button>
+                            <button
+                              type="button"
+                              on:click={() => deleteSpecialPeriod(sp.id)}
+                              class="text-rose-500 hover:text-rose-700 p-1 border-0 bg-transparent cursor-pointer"
+                              title="削除"
+                            >
+                              <span class="material-symbols-outlined text-sm">delete</span>
+                            </button>
+                          </div>
+                        </div>
+                      {/each}
+                    </div>
+                  </div>
+                {/if}
+              </div>
+
               <!-- ⚙️ 大型連休・変則期間 特別設定パネル (オーバーライド) -->
               <div
                 class="bg-white p-6 rounded-[20px] border border-amber-200/80 shadow-soft space-y-4 bg-gradient-to-br from-amber-50/20 to-white"
