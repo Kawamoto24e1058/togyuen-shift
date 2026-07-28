@@ -14,6 +14,7 @@ export default async function handler(req, res) {
   // GET /api/submissions
   if (req.method === 'GET') {
     try {
+      res.setHeader('Cache-Control', 's-maxage=10, stale-while-revalidate=59');
       const snapshot = await db.collection('submissions').get();
       const submissions = [];
       snapshot.forEach(doc => {
@@ -42,8 +43,18 @@ export default async function handler(req, res) {
         return res.status(404).send('指定されたスタッフが見つかりません。');
       }
 
-      // 動的締め切り計算 (当月後半Bなら10日、翌月前半Aなら25日) - JSTタイムゾーンセーフ
-      const getDeadlineForPeriod = (periodStr) => {
+      // 動的締め切り計算 (特別設定優先 -> 無ければデフォルト当月後半Bなら10日、翌月前半Aなら25日)
+      const getDeadlineForPeriod = async (periodStr) => {
+        try {
+          const settingDoc = await db.collection('shift_settings').doc(periodStr).get();
+          if (settingDoc.exists && settingDoc.data().isCustom !== false && settingDoc.data().deadlineDate) {
+            console.info(`[API Submissions] Using custom deadline for ${periodStr}: ${settingDoc.data().deadlineDate}`);
+            return new Date(settingDoc.data().deadlineDate);
+          }
+        } catch (e) {
+          console.warn('[API Submissions] Failed to fetch custom shift settings, using default deadline:', e);
+        }
+
         const parts = periodStr.split("-");
         const year = Number(parts[0]);
         const month = Number(parts[1]);
@@ -60,7 +71,7 @@ export default async function handler(req, res) {
         return new Date(dateStr);
       };
 
-      const deadline = getDeadlineForPeriod(period);
+      const deadline = await getDeadlineForPeriod(period);
       const now = new Date();
       const isPastDeadline = now > deadline;
 

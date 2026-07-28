@@ -14,6 +14,7 @@ export default async function handler(req, res) {
   // GET /api/deadline
   if (req.method === 'GET') {
     try {
+      res.setHeader('Cache-Control', 's-maxage=10, stale-while-revalidate=59');
       const doc = await db.collection('config').doc('deadline').get();
       if (doc.exists) {
         return res.status(200).json(doc.data());

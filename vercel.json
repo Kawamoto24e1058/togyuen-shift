@@ -5,6 +5,7 @@
     { "source": "/api/members/update", "destination": "/api/members?action=update" },
     { "source": "/api/members/archive", "destination": "/api/members?action=archive" },
     { "source": "/api/members/update-admin", "destination": "/api/members?action=update-admin" },
+    { "source": "/api/shift-settings", "destination": "/api/shift-settings" },
     { "source": "/callback", "destination": "/index.html" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],

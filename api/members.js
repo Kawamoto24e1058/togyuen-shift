@@ -191,6 +191,7 @@ export default async function handler(req, res) {
   // ==========================================
   if (req.method === 'GET') {
     try {
+      res.setHeader('Cache-Control', 's-maxage=10, stale-while-revalidate=59');
       console.info('[API Members GET] Fetching all members from Firestore...');
       const snapshot = await db.collection('members').get();
       const members = [];

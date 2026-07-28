@@ -635,10 +635,11 @@
     );
 
     selectedStaffId = registeredUser.id;
-    await loadStaffSubmissions(registeredUser.id);
-    requestPushSubscription(registeredUser.id).catch(console.error);
-
     loginPasscode = "";
+
+    // バックグラウンドで非同期読み込み（画面レンダリングをブロックしない）
+    loadStaffSubmissions(registeredUser.id).catch(console.error);
+    requestPushSubscription(registeredUser.id).catch(console.error);
   }
 
   // --- 新ログイン/登録処理ロジック (UXリファイン統合) ---
@@ -678,11 +679,12 @@
     );
 
     selectedStaffId = registeredUser.id;
-    await loadStaffSubmissions(registeredUser.id);
-    requestPushSubscription(registeredUser.id).catch(console.error);
-
     loginStaffIdInput = "";
     loginPasswordInput = "";
+
+    // バックグラウンドで非同期読み込み
+    loadStaffSubmissions(registeredUser.id).catch(console.error);
+    requestPushSubscription(registeredUser.id).catch(console.error);
   }
 
   async function handleInviteRegister() {
@@ -845,6 +847,92 @@
     }
   }
 
+  // 特別期間設定（大型連休等のオーバーライド）用のステート
+  /** @type {Record<string, any>} */
+  let shiftSettingsMap = {};
+  let customDeadlineInput = "";
+  let customStartDateInput = "";
+  let customEndDateInput = "";
+  let customNoteInput = "";
+
+  async function fetchShiftSettings() {
+    try {
+      const res = await fetch("/api/shift-settings");
+      if (res.ok) {
+        shiftSettingsMap = await res.json();
+        try {
+          localStorage.setItem("cachedShiftSettings", JSON.stringify(shiftSettingsMap));
+        } catch (e) {}
+      }
+    } catch (e) {
+      console.error("[App] Failed to load shift settings:", e);
+    }
+  }
+
+  async function saveCustomShiftSettings(period) {
+    if (!period) return;
+    try {
+      let deadlineIso = null;
+      if (customDeadlineInput) {
+        deadlineIso = new Date(customDeadlineInput).toISOString();
+      }
+
+      const res = await fetch("/api/shift-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          period,
+          isCustom: true,
+          deadlineDate: deadlineIso,
+          customStartDate: customStartDateInput || null,
+          customEndDate: customEndDateInput || null,
+          note: customNoteInput.trim(),
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        triggerToast(`✅ ${period} の特別設定を保存しました！`);
+        await fetchShiftSettings();
+      } else {
+        throw new Error(await res.text());
+      }
+    } catch (error) {
+      const err = /** @type {any} */ (error);
+      triggerToast(`⚠️ 特別設定の保存エラー: ${err.message}`);
+    }
+  }
+
+  async function resetCustomShiftSettings(period) {
+    if (!period) return;
+    try {
+      const res = await fetch("/api/shift-settings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          period,
+          isCustom: false,
+        }),
+      });
+
+      if (res.ok) {
+        triggerToast(
+          `🔄 ${period} の特別設定をリセット（デフォルトに戻す）しました！`,
+        );
+        customDeadlineInput = "";
+        customStartDateInput = "";
+        customEndDateInput = "";
+        customNoteInput = "";
+        await fetchShiftSettings();
+      } else {
+        throw new Error(await res.text());
+      }
+    } catch (error) {
+      const err = /** @type {any} */ (error);
+      triggerToast(`⚠️ リセットエラー: ${err.message}`);
+    }
+  }
+
   // 提出保存・締め切り用の新規ステート
   let isSubmitting = false;
   let deadlineDate = "2026-05-30T23:59:59";
@@ -855,12 +943,20 @@
   /** @type {any} */
   let saveTimeout = null;
 
-  // 自律型遅刻救済のための動的締め切り計算
+  // 自律型遅刻救済のための動的締め切り計算 (特別設定があれば優先)
   /**
    * @param {string} periodStr
    */
   function getDeadlineDateForPeriod(periodStr) {
     if (!periodStr) return null;
+    const customSetting = shiftSettingsMap[periodStr];
+    if (
+      customSetting &&
+      customSetting.isCustom !== false &&
+      customSetting.deadlineDate
+    ) {
+      return new Date(customSetting.deadlineDate);
+    }
     const parts = periodStr.split("-");
     const year = Number(parts[0]);
     const month = Number(parts[1]);
@@ -873,6 +969,33 @@
       return new Date(year, month - 2, 25, 23, 59, 59);
     }
     return null;
+  }
+
+  $: activeCustomSetting =
+    shiftSettingsMap[currentPeriod] &&
+    shiftSettingsMap[currentPeriod].isCustom !== false
+      ? shiftSettingsMap[currentPeriod]
+      : null;
+
+  $: {
+    if (activeCustomSetting) {
+      customDeadlineInput = activeCustomSetting.deadlineDate
+        ? new Date(
+            new Date(activeCustomSetting.deadlineDate).getTime() -
+              new Date().getTimezoneOffset() * 60000,
+          )
+            .toISOString()
+            .slice(0, 16)
+        : "";
+      customStartDateInput = activeCustomSetting.customStartDate || "";
+      customEndDateInput = activeCustomSetting.customEndDate || "";
+      customNoteInput = activeCustomSetting.note || "";
+    } else {
+      customDeadlineInput = "";
+      customStartDateInput = "";
+      customEndDateInput = "";
+      customNoteInput = "";
+    }
   }
 
   $: selectablePeriods =
@@ -1258,47 +1381,17 @@
 
   onMount(() => {
     async function init() {
-      // 0. マウント時にFirestoreから臨時休業データ、メンバー一覧、公開ステータスを取得
-      await fetchHolidays();
-      await fetchMembers();
-      await fetchShiftStatus(currentPeriod);
-      await fetchSubmissions();
-
-      // 1. ローカルストレージから既存のサインインセッションを復元
+      // 1. ローカルストレージから既存のサインインセッションを即座に復元 (ファーストペイント最速化)
       const cachedUser = localStorage.getItem("currentUser");
       if (cachedUser) {
         try {
           const parsedUser = JSON.parse(cachedUser);
           if (parsedUser && parsedUser.id) {
-            // Firestoreから取得した最新メンバーリストでキャッシュを更新（isAdminなどを最新化）
-            const freshMember = members.find((m) => m.id === parsedUser.id);
-            if (freshMember) {
-              const refreshedUser = {
-                ...parsedUser,
-                ...freshMember,
-                avatar: parsedUser.avatar || freshMember.emoji || "👩‍💼",
-                isAdmin: !!freshMember.isAdmin,
-              };
-              currentUser = refreshedUser;
-              // キャッシュを最新データで上書き
-              localStorage.setItem(
-                "currentUser",
-                JSON.stringify(refreshedUser),
-              );
-            } else {
-              // メンバーリストに存在しなくなった場合はキャッシュをクリア
-              console.warn(
-                "[App] Cached user not found in members. Clearing session.",
-              );
-              localStorage.removeItem("currentUser");
-            }
-
-            if (currentUser) {
-              // バックグラウンドでWeb Push購読を確認・更新
-              requestPushSubscription(currentUser.id).catch(console.error);
-              selectedStaffId = currentUser.id;
-              loadStaffSubmissions(currentUser.id).catch(console.error);
-            }
+            currentUser = parsedUser;
+            selectedStaffId = parsedUser.id;
+            // バックグラウンドで非同期読み込み
+            loadStaffSubmissions(parsedUser.id).catch(console.error);
+            requestPushSubscription(parsedUser.id).catch(console.error);
           }
         } catch (e) {
           localStorage.removeItem("currentUser");
@@ -1319,9 +1412,41 @@
         }
       }
 
-      // 既存の初期化処理
-      await loadShifts(currentPeriod);
-      fetchDeadline();
+      // 3. API要求の並列化 (Promise.all)
+      try {
+        await Promise.all([
+          fetchHolidays(),
+          fetchMembers(),
+          fetchShiftStatus(currentPeriod),
+          fetchSubmissions(),
+          loadShifts(currentPeriod),
+          fetchDeadline(),
+          fetchShiftSettings(),
+        ]);
+
+        // 最新のメンバー情報が得られたらキャッシュを検証・最新化
+        if (currentUser && currentUser.id) {
+          const freshMember = members.find((m) => m.id === currentUser.id);
+          if (freshMember) {
+            const refreshedUser = {
+              ...currentUser,
+              ...freshMember,
+              avatar: currentUser.avatar || freshMember.emoji || "👩‍💼",
+              isAdmin: !!freshMember.isAdmin,
+            };
+            currentUser = refreshedUser;
+            localStorage.setItem("currentUser", JSON.stringify(refreshedUser));
+          } else {
+            console.warn(
+              "[App] Cached user not found in members. Clearing session.",
+            );
+            localStorage.removeItem("currentUser");
+            currentUser = null;
+          }
+        }
+      } catch (e) {
+        console.error("[App] Failed to load initial app data:", e);
+      }
     }
 
     init();
@@ -1557,6 +1682,9 @@
       const res = await fetch("/api/members");
       if (res.ok) {
         members = await res.json();
+        try {
+          localStorage.setItem("cachedMembers", JSON.stringify(members));
+        } catch (e) {}
       }
     } catch (e) {
       console.error("[App] Failed to load members:", e);
@@ -1915,8 +2043,16 @@
           shiftStatusA = data.status;
         } else if (targetPeriod.endsWith("-B")) {
           shiftStatusB = data.status;
+        } else {
+          shiftStatusA = data.status;
+          shiftStatusB = data.status;
         }
         triggerToast("💚 シフトを確定公開しました！");
+        // 最新ステータスとシフトアサインを即時再取得・UI反映
+        await Promise.all([
+          fetchShiftStatus(currentPeriod),
+          loadShifts(currentPeriod),
+        ]);
       } else {
         throw new Error(await res.text());
       }
@@ -1941,8 +2077,16 @@
           shiftStatusA = data.status;
         } else if (targetPeriod.endsWith("-B")) {
           shiftStatusB = data.status;
+        } else {
+          shiftStatusA = data.status;
+          shiftStatusB = data.status;
         }
         triggerToast("✏️ シフトを下書き状態に戻しました。");
+        // 最新ステータスとシフトアサインを即時再取得・UI反映
+        await Promise.all([
+          fetchShiftStatus(currentPeriod),
+          loadShifts(currentPeriod),
+        ]);
       } else {
         throw new Error(await res.text());
       }
@@ -1958,6 +2102,9 @@
       const res = await fetch("/api/holidays");
       if (res.ok) {
         specialHolidays = await res.json();
+        try {
+          localStorage.setItem("cachedHolidays", JSON.stringify(specialHolidays));
+        } catch (e) {}
       }
     } catch (e) {
       console.error("[App] Failed to load holidays:", e);
@@ -2865,6 +3012,52 @@
       <!-- ========================================================================= -->
       {#if activeTab === "calendar"}
         <div class="space-y-6" in:fade={{ duration: 150 }}>
+          <!-- 特別設定 (大型連休等オーバーライド) 適用時の通知バナー -->
+          {#if activeCustomSetting}
+            <div
+              class="bg-gradient-to-r from-amber-500 to-amber-600 text-white p-4 rounded-[20px] shadow-md flex items-center justify-between gap-3 animate-popup font-sans"
+            >
+              <div class="flex items-center gap-3">
+                <span class="text-2xl">⚠️</span>
+                <div>
+                  <div class="flex items-center gap-2">
+                    <span class="font-black text-sm"
+                      >大型連休・変則期間の特別締切が設定されています</span
+                    >
+                    {#if activeCustomSetting.note}
+                      <span
+                        class="bg-white/20 text-white text-[10px] font-bold px-2 py-0.5 rounded-full"
+                      >
+                        {activeCustomSetting.note}
+                      </span>
+                    {/if}
+                  </div>
+                  <p class="text-xs text-amber-50 font-medium mt-0.5">
+                    締切日時: <strong class="underline"
+                      >{deadlineObj
+                        ? deadlineObj.toLocaleString("ja-JP", {
+                            month: "numeric",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })
+                        : "設定あり"}</strong
+                    >
+                    {#if activeCustomSetting.customStartDate || activeCustomSetting.customEndDate}
+                      ｜ 対象シフト期間: {activeCustomSetting.customStartDate ||
+                        "開始"} 〜 {activeCustomSetting.customEndDate || "終了"}
+                    {/if}
+                  </p>
+                </div>
+              </div>
+              <span
+                class="text-[10px] font-extrabold bg-white text-amber-700 px-3 py-1 rounded-full shadow-xs whitespace-nowrap"
+              >
+                特別設定適用中
+              </span>
+            </div>
+          {/if}
+
           <!-- Date Selector / Month Navigation -->
           <section
             class="flex justify-between items-center bg-white p-4.5 rounded-[20px] shadow-soft border border-slate-100"
@@ -3743,7 +3936,7 @@
                         selectedEditDate = d.dateStr;
                       }}
                       disabled={d.isOtherMonth}
-                      class="min-h-[80px] md:min-h-[120px] p-1 md:p-1.5 rounded-lg text-left outline-none transition-all flex flex-col justify-between cursor-pointer border border-solid
+                      class="min-h-[80px] md:min-h-[120px] p-1 md:p-1.5 rounded-lg text-left outline-none transition-all flex flex-col justify-between cursor-pointer border border-solid w-full min-w-0 overflow-hidden
                       {d.isOtherMonth
                         ? 'bg-surface-container-low opacity-40 pointer-events-none border-transparent'
                         : ''}
@@ -3800,9 +3993,15 @@
                                 title="キッチン">🍳</span
                               >
                               {#each kitchenShifts as s}
-                                {@const staff = members.find((mem) => mem.id == s.member_id)}
-                                {@const defaultKitchenTime = (d.isWeekend && staff?.canHappyHour) ? "15:00" : "17:00"}
-                                {@const isModified = s.start_time !== defaultKitchenTime}
+                                {@const staff = members.find(
+                                  (mem) => mem.id == s.member_id,
+                                )}
+                                {@const defaultKitchenTime =
+                                  d.isWeekend && staff?.canHappyHour
+                                    ? "15:00"
+                                    : "17:00"}
+                                {@const isModified =
+                                  s.start_time !== defaultKitchenTime}
                                 {@const badgeColor = isModified
                                   ? "bg-amber-50 border-amber-300 text-amber-900 shadow-sm"
                                   : "bg-primary-container/10 border-primary-container/30 text-primary"}
@@ -3838,7 +4037,8 @@
                               >
                               {#each hallShifts as s}
                                 {@const defaultHallTime = "17:30"}
-                                {@const isModified = s.start_time !== defaultHallTime}
+                                {@const isModified =
+                                  s.start_time !== defaultHallTime}
                                 {@const badgeColor = isModified
                                   ? "bg-amber-50 border-amber-300 text-amber-900 shadow-sm"
                                   : "bg-tertiary-container/10 border-tertiary-container/30 text-tertiary"}
@@ -4018,7 +4218,129 @@
             </div>
 
             <div class="flex flex-col gap-6">
-              <!-- シフト公開・下書き戻しボタン -->
+              <!-- ⚙️ 大型連休・変則期間 特別設定パネル (オーバーライド) -->
+              <div
+                class="bg-white p-6 rounded-[20px] border border-amber-200/80 shadow-soft space-y-4 bg-gradient-to-br from-amber-50/20 to-white"
+              >
+                <div class="flex items-center justify-between">
+                  <div class="flex items-center gap-2">
+                    <span class="text-xl">⚙️</span>
+                    <div>
+                      <h4
+                        class="text-xs font-black text-slate-800 tracking-tight"
+                      >
+                        大型連休・変則期間の特別設定 (オーバーライド)
+                      </h4>
+                      <p class="text-[10px] text-slate-500 font-medium">
+                        対象期間 ({currentPeriod})
+                        の締め切り日やシフト対象範囲を個別指定で手動上書きします
+                      </p>
+                    </div>
+                  </div>
+                  {#if activeCustomSetting}
+                    <span
+                      class="px-2.5 py-1 rounded-full text-[9px] font-black bg-amber-500 text-white shadow-xs"
+                    >
+                      特別設定適用中
+                    </span>
+                  {:else}
+                    <span
+                      class="px-2.5 py-1 rounded-full text-[9px] font-bold bg-slate-100 text-slate-500"
+                    >
+                      デフォルト自動計算
+                    </span>
+                  {/if}
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+                  <!-- 特別締め切り日時設定 -->
+                  <div class="space-y-1.5">
+                    <label
+                      for="custom-deadline-input"
+                      class="text-[10px] font-bold text-slate-700 block"
+                    >
+                      ⏰ 希望受付締切日時 (任意指定)
+                    </label>
+                    <input
+                      id="custom-deadline-input"
+                      type="datetime-local"
+                      bind:value={customDeadlineInput}
+                      class="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-white font-mono focus:outline-none focus:border-amber-500 box-border"
+                    />
+                    <p class="text-[9px] text-slate-400">
+                      未指定時はデフォルト (10日/25日 23:59)
+                    </p>
+                  </div>
+
+                  <!-- 変則対象期間 (開始日〜終了日) -->
+                  <div class="space-y-1.5">
+                    <label
+                      for="custom-start-date-input"
+                      class="text-[10px] font-bold text-slate-700 block"
+                    >
+                      📅 変則対象シフト範囲 (任意指定)
+                    </label>
+                    <div class="flex items-center gap-2">
+                      <input
+                        id="custom-start-date-input"
+                        type="date"
+                        bind:value={customStartDateInput}
+                        class="w-full text-xs p-2 rounded-xl border border-slate-200 bg-white font-mono focus:outline-none focus:border-amber-500 box-border"
+                      />
+                      <span class="text-xs font-bold text-slate-400">〜</span>
+                      <input
+                        id="custom-end-date-input"
+                        type="date"
+                        aria-label="変則対象シフト範囲（終了日）"
+                        bind:value={customEndDateInput}
+                        class="w-full text-xs p-2 rounded-xl border border-slate-200 bg-white font-mono focus:outline-none focus:border-amber-500 box-border"
+                      />
+                    </div>
+                    <p class="text-[9px] text-slate-400">
+                      未指定時はデフォルト (1〜15日 / 16〜末日)
+                    </p>
+                  </div>
+                </div>
+
+                <!-- メモ欄 -->
+                <div class="space-y-1">
+                  <label
+                    for="custom-note-input"
+                    class="text-[10px] font-bold text-slate-700 block"
+                  >
+                    📝 設定メモ (例: GW特別進行・年末年始短縮)
+                  </label>
+                  <input
+                    id="custom-note-input"
+                    type="text"
+                    bind:value={customNoteInput}
+                    placeholder="例: 年末年始特別締め切り"
+                    class="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-white focus:outline-none focus:border-amber-500 box-border"
+                  />
+                </div>
+
+                <!-- アクションボタン -->
+                <div
+                  class="flex items-center justify-end gap-2 pt-2 border-t border-slate-100"
+                >
+                  {#if activeCustomSetting}
+                    <button
+                      type="button"
+                      on:click={() => resetCustomShiftSettings(currentPeriod)}
+                      class="px-3 py-2 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl border border-slate-200 cursor-pointer transition-all border-solid"
+                    >
+                      🔄 リセット (デフォルトに戻す)
+                    </button>
+                  {/if}
+                  <button
+                    type="button"
+                    on:click={() => saveCustomShiftSettings(currentPeriod)}
+                    class="px-4 py-2.5 text-xs font-bold text-white bg-amber-500 hover:bg-amber-600 rounded-xl shadow-xs cursor-pointer transition-all border-0"
+                  >
+                    💾 {currentPeriod} の特別設定を保存
+                  </button>
+                </div>
+              </div>
 
               <!-- 曜日別一括休業 ＆ 提出締め切り設定パネル -->
               <div
@@ -4400,7 +4722,7 @@
       >
     </div>
     <p class="text-[10px] font-black text-slate-400 uppercase tracking-widest">
-      © 2024 桃牛苑 Operations Inc.
+      © 2026 桃牛苑 Operations Inc.
     </p>
   </footer>
 
@@ -4521,12 +4843,17 @@
                     {@const m = members.find((mem) => mem.id == s.member_id)}
                     {@const isTrainee = m?.status === "trainee"}
                     {@const isWeekendDay = (() => {
-                      const dow = new Date(selectedEditDate + 'T00:00:00').getDay();
+                      const dow = new Date(
+                        selectedEditDate + "T00:00:00",
+                      ).getDay();
                       return dow === 0 || dow === 6;
                     })()}
-                    {@const defaultTimeForInput = s.role === "kitchen" 
-                      ? (isWeekendDay && m?.canHappyHour ? "15:00" : "17:00") 
-                      : "17:30"}
+                    {@const defaultTimeForInput =
+                      s.role === "kitchen"
+                        ? isWeekendDay && m?.canHappyHour
+                          ? "15:00"
+                          : "17:00"
+                        : "17:30"}
                     <div
                       class="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-100 gap-2"
                     >

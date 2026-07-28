@@ -23,6 +23,7 @@ export default async function handler(req, res) {
     const period = req.query.period || (req.body && req.body.period) || '2026-06';
     if (req.method === 'GET') {
       try {
+        res.setHeader('Cache-Control', 's-maxage=10, stale-while-revalidate=59');
         console.info(`[API Shift Status GET] Fetching status for period: ${period}`);
         const docRef = db.collection('shift_status').doc(period);
         const doc = await docRef.get();
@@ -86,15 +87,33 @@ export default async function handler(req, res) {
       const daysInMonth = new Date(year, month, 0).getDate();
       let startDateStr, endDateStr;
 
-      if (half === 'A') {
-        startDateStr = `${parts[0]}-${parts[1]}-01`;
-        endDateStr = `${parts[0]}-${parts[1]}-15`;
-      } else if (half === 'B') {
-        startDateStr = `${parts[0]}-${parts[1]}-16`;
-        endDateStr = `${parts[0]}-${parts[1]}-${String(daysInMonth).padStart(2, '0')}`;
-      } else {
-        startDateStr = `${parts[0]}-${parts[1]}-01`;
-        endDateStr = `${parts[0]}-${parts[1]}-${String(daysInMonth).padStart(2, '0')}`;
+      // 特別期間設定 (shift_settings) の優先判定
+      try {
+        const settingDoc = await db.collection('shift_settings').doc(period).get();
+        if (settingDoc.exists && settingDoc.data().isCustom !== false) {
+          const customData = settingDoc.data();
+          if (customData.customStartDate) startDateStr = customData.customStartDate;
+          if (customData.customEndDate) endDateStr = customData.customEndDate;
+          if (startDateStr || endDateStr) {
+            console.info(`[API Shift Generate] Using custom date range for ${period}: ${startDateStr} ~ ${endDateStr}`);
+          }
+        }
+      } catch (e) {
+        console.warn('[API Shift Generate] Failed to fetch custom shift settings, using default range:', e);
+      }
+
+      // デフォルト計算フォールバック
+      if (!startDateStr || !endDateStr) {
+        if (half === 'A') {
+          startDateStr = `${parts[0]}-${parts[1]}-01`;
+          endDateStr = `${parts[0]}-${parts[1]}-15`;
+        } else if (half === 'B') {
+          startDateStr = `${parts[0]}-${parts[1]}-16`;
+          endDateStr = `${parts[0]}-${parts[1]}-${String(daysInMonth).padStart(2, '0')}`;
+        } else {
+          startDateStr = `${parts[0]}-${parts[1]}-01`;
+          endDateStr = `${parts[0]}-${parts[1]}-${String(daysInMonth).padStart(2, '0')}`;
+        }
       }
 
       const membersSnap = await db.collection('members').get();
@@ -253,12 +272,35 @@ export default async function handler(req, res) {
 
       console.info(`[API Shift Publish] Publishing shift for period: ${period}`);
 
-      const docRef = db.collection('shift_status').doc(period);
-      await docRef.set({
+      const nowIso = new Date().toISOString();
+      const publishData = {
         period,
         status: 'published',
-        publishedAt: new Date().toISOString()
-      }, { merge: true });
+        publishedAt: nowIso,
+        updatedAt: nowIso
+      };
+
+      // Firestore の更新
+      const batch = db.batch();
+
+      if (period.endsWith('-A') || period.endsWith('-B')) {
+        const docRef = db.collection('shift_status').doc(period);
+        batch.set(docRef, publishData, { merge: true });
+      } else {
+        // 月全体（例: 2026-06）の場合、2026-06, 2026-06-A, 2026-06-B の全てを公開状態に更新
+        const periodsToUpdate = [period, `${period}-A`, `${period}-B`];
+        for (const p of periodsToUpdate) {
+          const docRef = db.collection('shift_status').doc(p);
+          batch.set(docRef, {
+            period: p,
+            status: 'published',
+            publishedAt: nowIso,
+            updatedAt: nowIso
+          }, { merge: true });
+        }
+      }
+
+      await batch.commit();
 
       const channelAccessToken = process.env.LINE_CHANNEL_ACCESS_TOKEN;
       const groupId = process.env.LINE_GROUP_ID;
@@ -306,6 +348,7 @@ export default async function handler(req, res) {
         message: `${periodLabel}のシフトを確定公開し、LINE通知を送信しました。`,
         period,
         status: 'published',
+        publishedAt: nowIso,
         lineNotified: notified || true
       });
     } catch (err) {
@@ -323,6 +366,7 @@ export default async function handler(req, res) {
   // GET: 指定期間のシフトデータを Firestore からロード
   if (req.method === 'GET') {
     try {
+      res.setHeader('Cache-Control', 's-maxage=10, stale-while-revalidate=59');
       console.info(`[API Shifts GET] Loading shifts for period ${period} from Firestore...`);
 
       // period 完全一致で検索（例: '2026-07-A'）
