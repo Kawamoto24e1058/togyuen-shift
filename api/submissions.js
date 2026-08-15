@@ -14,7 +14,7 @@ export default async function handler(req, res) {
   // GET /api/submissions
   if (req.method === 'GET') {
     try {
-      res.setHeader('Cache-Control', 's-maxage=10, stale-while-revalidate=59');
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       const snapshot = await db.collection('submissions').get();
       const submissions = [];
       snapshot.forEach(doc => {

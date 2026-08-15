@@ -170,32 +170,25 @@ export default async function handler(req, res) {
       });
 
       const submissionsMap = new Map();
-      const subsSnap = await db.collection('submissions').where('period', '==', period).get();
+      const baseMonth = `${parts[0]}-${parts[1]}`;
+      const subsSnap = await db.collection('submissions').get();
       subsSnap.forEach(doc => {
         const data = doc.data();
-        submissionsMap.set(Number(data.staffId), data.availabilities || {});
-      });
+        const staffId = Number(data.staffId);
+        if (!staffId || !data.availabilities) return;
 
-      if (half === 'A' || half === 'B') {
-        const baseMonth = `${parts[0]}-${parts[1]}`;
-        const baseSubsSnap = await db.collection('submissions').where('period', '==', baseMonth).get();
-        baseSubsSnap.forEach(doc => {
-          const data = doc.data();
-          const staffId = Number(data.staffId);
-          if (!submissionsMap.has(staffId) && data.availabilities) {
-            const filteredAvail = {};
-            Object.keys(data.availabilities).forEach(dateStr => {
-              const day = Number(dateStr.split('-')[2]);
-              if (half === 'A' && day <= 15) {
-                filteredAvail[dateStr] = data.availabilities[dateStr];
-              } else if (half === 'B' && day >= 16) {
-                filteredAvail[dateStr] = data.availabilities[dateStr];
-              }
-            });
-            submissionsMap.set(staffId, filteredAvail);
-          }
-        });
-      }
+        // 該当期間または該当月に属する希望データをマージ
+        if (data.period === period || data.period === baseMonth || data.period.startsWith(baseMonth)) {
+          const currentAvail = submissionsMap.get(staffId) || {};
+          const filteredAvail = { ...currentAvail };
+          Object.keys(data.availabilities).forEach(dateStr => {
+            if (dateStr >= startDateStr && dateStr <= endDateStr) {
+              filteredAvail[dateStr] = data.availabilities[dateStr];
+            }
+          });
+          submissionsMap.set(staffId, filteredAvail);
+        }
+      });
 
       const activeMemberIds = new Set(members.map(m => m.id));
       const submissions = Array.from(submissionsMap.entries())

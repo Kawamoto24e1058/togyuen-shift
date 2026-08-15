@@ -394,34 +394,30 @@
   $: modalAvailabilities = (() => {
     const member = selectedModalMember;
     if (!member) return {};
-    const memberId = member.id;
+    const memberId = Number(member.id);
     const baseMonth = currentPeriod.substring(0, 7);
-    if (currentPeriod.length === 7) {
-      const subA = allSubmissions.find(
-        (s) => s.staffId === memberId && s.period === `${baseMonth}-A`,
-      );
-      const subB = allSubmissions.find(
-        (s) => s.staffId === memberId && s.period === `${baseMonth}-B`,
-      );
-      return {
-        ...(subA?.availabilities || {}),
-        ...(subB?.availabilities || {}),
-      };
-    } else {
-      const sub = allSubmissions.find(
-        (s) => s.staffId === memberId && s.period === currentPeriod,
-      );
-      return sub?.availabilities || {};
+
+    // 該当スタッフの該当月に属する全提出データを収集・統合
+    const relevantSubs = allSubmissions.filter(
+      (s) => Number(s.staffId) === memberId && (s.period === currentPeriod || s.period.startsWith(baseMonth)),
+    );
+
+    let mergedAvail = {};
+    for (const sub of relevantSubs) {
+      if (sub.availabilities) {
+        mergedAvail = { ...mergedAvail, ...sub.availabilities };
+      }
     }
+    return mergedAvail;
   })();
 
   $: modalSubmitPattern = (() => {
     const member = selectedModalMember;
     if (!member) return "A";
-    const memberId = member.id;
+    const memberId = Number(member.id);
     const baseMonth = currentPeriod.substring(0, 7);
     const sub = allSubmissions.find(
-      (s) => s.staffId === memberId && s.period.startsWith(baseMonth),
+      (s) => Number(s.staffId) === memberId && (s.period === currentPeriod || s.period.startsWith(baseMonth)),
     );
     return sub?.submitPattern || "A";
   })();
@@ -429,22 +425,15 @@
   $: isModalSubmitted = (() => {
     const member = selectedModalMember;
     if (!member) return false;
-    const memberId = member.id;
+    const memberId = Number(member.id);
     const baseMonth = currentPeriod.substring(0, 7);
-    if (currentPeriod.length === 7) {
-      const subA = allSubmissions.find(
-        (s) => s.staffId === memberId && s.period === `${baseMonth}-A`,
-      );
-      const subB = allSubmissions.find(
-        (s) => s.staffId === memberId && s.period === `${baseMonth}-B`,
-      );
-      return subA?.isSubmitted === true && subB?.isSubmitted === true;
-    } else {
-      const sub = allSubmissions.find(
-        (s) => s.staffId === memberId && s.period === currentPeriod,
-      );
-      return sub?.isSubmitted === true;
-    }
+
+    const relevantSubs = allSubmissions.filter(
+      (s) => Number(s.staffId) === memberId && (s.period === currentPeriod || s.period.startsWith(baseMonth)),
+    );
+
+    if (relevantSubs.length === 0) return false;
+    return relevantSubs.some((s) => s.isSubmitted === true);
   })();
 
   $: modalGridCells = generateGridCells(currentPeriod);
@@ -1159,7 +1148,7 @@
   $: isPastDeadline = deadlineObj ? new Date() > deadlineObj : false;
   $: mySubmission = allSubmissions.find(
     (sub) =>
-      sub.period === currentPeriod &&
+      (sub.period === currentPeriod || sub.period === currentPeriod.substring(0, 7)) &&
       Number(sub.staffId) === Number(currentUser?.id),
   );
   $: isSubmitted = mySubmission ? mySubmission.isSubmitted === true : false;
@@ -1170,7 +1159,7 @@
 
   async function fetchSubmissions() {
     try {
-      const res = await fetch("/api/submissions");
+      const res = await fetch(`/api/submissions?t=${Date.now()}`);
       if (res.ok) {
         allSubmissions = await res.json();
       }
@@ -1184,7 +1173,8 @@
   );
   $: submittedStaffIds = new Set(
     allSubmissions
-      .filter((sub) => sub.period === currentPeriod)
+      .filter((sub) => sub.period === currentPeriod || sub.period === currentPeriod.substring(0, 7) || sub.period.startsWith(currentPeriod.substring(0, 7)))
+      .filter((sub) => sub.isSubmitted === true)
       .map((sub) => Number(sub.staffId)),
   );
   $: unsubmittedMembers = members.filter(
@@ -1438,7 +1428,7 @@
         const data = await res.json();
         const mySub = data.find(
           (sub) =>
-            sub.staffId === Number(staffId) && sub.period === currentPeriod,
+            Number(sub.staffId) === Number(staffId) && sub.period === currentPeriod,
         );
         if (mySub && mySub.availabilities) {
           staffAvailabilities = mySub.availabilities;
@@ -1450,7 +1440,7 @@
           const baseMonth = currentPeriod.substring(0, 7); // e.g. "2026-06"
           const monthSub = data.find(
             (sub) =>
-              sub.staffId === Number(staffId) && sub.period === baseMonth,
+              Number(sub.staffId) === Number(staffId) && sub.period === baseMonth,
           );
           if (monthSub && monthSub.availabilities) {
             const half = currentPeriod.substring(8); // "A" or "B"
