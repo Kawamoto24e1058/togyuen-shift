@@ -98,6 +98,32 @@
     }
   }
 
+  // 管理者画面のデフォルト対象期間: スタッフの希望提出締切を「直近で過ぎたばかりの期間」を返す。
+  // (getSubmissionPeriod は逆に「次に締め切られる=まだ募集中の期間」を返すため、管理者が
+  //  実際にシフトを組む期間とは常に1つずれる)
+  function getManagerPeriod(now = new Date()) {
+    const jstDate = new Date(
+      now.toLocaleString("en-US", { timeZone: "Asia/Tokyo" }),
+    );
+    const year = jstDate.getFullYear();
+    const month = jstDate.getMonth() + 1; // 1-12
+    const day = jstDate.getDate();
+
+    if (day <= 10) {
+      // 前月25日締切の前半A分をまだ組んでいる期間
+      return `${year}-${String(month).padStart(2, "0")}-A`;
+    } else if (day <= 25) {
+      // 当月10日締切の後半B分をまだ組んでいる期間
+      return `${year}-${String(month).padStart(2, "0")}-B`;
+    } else {
+      // 当月25日締切の翌月前半A分をまだ組んでいる期間
+      const nextDate = new Date(year, jstDate.getMonth() + 1, 1);
+      const nextYear = nextDate.getFullYear();
+      const nextMonth = nextDate.getMonth() + 1;
+      return `${nextYear}-${String(nextMonth).padStart(2, "0")}-A`;
+    }
+  }
+
   /**
    * @param {string} periodStr
    */
@@ -184,7 +210,7 @@
       currentPeriod = getSubmissionPeriod(now);
     } else if (tab === "manager") {
       if (currentPeriod.split("-").length < 3) {
-        currentPeriod = getSubmissionPeriod(now);
+        currentPeriod = getManagerPeriod(now);
       }
     }
 
@@ -1126,21 +1152,41 @@
     }
   }
 
+  // 選択可能な対象月を「今月」を基準に前後にずらして動的に生成する。
+  // (以前は月を決め打ちでハードコードしていたため、その範囲を超えた月が
+  //  選べず、自動判定が外れた際に手動で切り替えることもできなかった)
+  function generatePeriodMonths(monthsBefore = 2, monthsAfter = 6) {
+    const now = new Date(
+      new Date().toLocaleString("en-US", { timeZone: "Asia/Tokyo" }),
+    );
+    const start = new Date(now.getFullYear(), now.getMonth() - monthsBefore, 1);
+    const months = [];
+    for (let i = 0; i < monthsBefore + monthsAfter + 1; i++) {
+      const d = new Date(start.getFullYear(), start.getMonth() + i, 1);
+      months.push({ year: d.getFullYear(), month: d.getMonth() + 1 });
+    }
+    return months;
+  }
+
   $: selectablePeriods =
     activeTab === "calendar"
-      ? [
-          { value: "2026-06", label: "2026年6月" },
-          { value: "2026-07", label: "2026年7月" },
-          { value: "2026-08", label: "2026年8月" },
-        ]
-      : [
-          { value: "2026-06-A", label: "2026年6月 前半 (1日〜15日) " },
-          { value: "2026-06-B", label: "2026年6月 後半 (16日〜末日)" },
-          { value: "2026-07-A", label: "2026年7月 前半 (1日〜15日)" },
-          { value: "2026-07-B", label: "2026年7月 後半 (16日〜末日)" },
-          { value: "2026-08-A", label: "2026年8月 前半 (1日〜15日)" },
-          { value: "2026-08-B", label: "2026年8月 後半 (16日〜末日)" },
-        ];
+      ? generatePeriodMonths().map(({ year, month }) => ({
+          value: `${year}-${String(month).padStart(2, "0")}`,
+          label: `${year}年${month}月`,
+        }))
+      : generatePeriodMonths().flatMap(({ year, month }) => {
+          const mm = String(month).padStart(2, "0");
+          return [
+            {
+              value: `${year}-${mm}-A`,
+              label: `${year}年${month}月 前半 (1日〜15日) `,
+            },
+            {
+              value: `${year}-${mm}-B`,
+              label: `${year}年${month}月 後半 (16日〜末日)`,
+            },
+          ];
+        });
 
   $: deadlineInfo = getDeadlineInfo(currentPeriod);
 
