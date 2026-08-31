@@ -338,7 +338,7 @@ export default async function handler(req, res) {
         periodLabel = `${yearStr}年${monthStr}月 後半 (16日〜末日)分`;
       }
 
-      const message = `\n💚 [桃牛苑 確定シフト公開のお知らせ]\n\n店長より、${periodLabel}の確定シフトが公開されました！\nアプリを開いて自分の出勤日をご確認ください。\n\nアプリを開く: https://togyuen-shift.vercel.app`;
+      const message = `\n💚 [桃牛苑 確定シフト公開のお知らせ]\n\n店長より、${periodLabel}の確定シフトが公開されました！\nアプリを開いて自分の出勤日をご確認ください。\n\nアプリを開く: https://togyuen-shift-xhar.vercel.app`;
 
       console.info(`[API Shift Publish] Sending LINE notification message:\n${message}`);
 
