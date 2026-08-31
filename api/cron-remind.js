@@ -65,7 +65,7 @@ export default async function handler(req, res) {
     const allMembers = [];
     membersSnap.forEach(doc => {
       const data = doc.data();
-      if (data.isActive !== false) {
+      if (data.isActive !== false && data.isOnLeave !== true) {
         allMembers.push({ id: Number(doc.id), ...data });
       }
     });

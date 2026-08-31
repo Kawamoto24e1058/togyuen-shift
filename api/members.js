@@ -133,7 +133,7 @@ export default async function handler(req, res) {
   // ==========================================
   if (action === 'update' || (req.method === 'POST' && action !== 'archive' && action !== 'update-admin')) {
     try {
-      const { id, targetDays, roles, status, passcode, canHappyHour } = req.body || {};
+      const { id, targetDays, roles, status, passcode, canHappyHour, isOnLeave } = req.body || {};
       if (!id) {
         return res.status(400).send('必須パラメータ（id）が不足しています。');
       }
@@ -168,6 +168,9 @@ export default async function handler(req, res) {
       }
       if (canHappyHour !== undefined) {
         updateData.canHappyHour = (canHappyHour === true || canHappyHour === 'true');
+      }
+      if (isOnLeave !== undefined) {
+        updateData.isOnLeave = (isOnLeave === true || isOnLeave === 'true');
       }
 
       await docRef.update(updateData);
@@ -207,6 +210,7 @@ export default async function handler(req, res) {
           status: data.isTrainee ? 'trainee' : (data.status || 'regular'),
           isTrainee: data.isTrainee !== undefined ? data.isTrainee : (data.status === 'trainee'),
           isActive: data.isActive !== false,
+          isOnLeave: data.isOnLeave === true,
           isAdmin: data.isAdmin === true,
           canHappyHour: data.canHappyHour === true,
           emoji: data.roles?.includes('kitchen') ? '👨‍🍳' : '👩‍💼',

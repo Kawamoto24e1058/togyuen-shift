@@ -44,6 +44,7 @@
    * @property {string} [avatar]
    * @property {boolean} [isAdmin]
    * @property {boolean} [isActive]
+   * @property {boolean} [isOnLeave]
    * @property {string} [passcode]
    */
 
@@ -789,41 +790,46 @@
    * @param {boolean} isAdmin
    */
   async function toggleAdminPrivilege(memberId, isAdmin) {
+    // 楽観的UI更新: 通信完了を待たず即座に画面へ反映し、ラグを無くす。
+    // 失敗した場合のみ元の状態に戻す。
+    const prevMember = members.find((m) => m.id === memberId);
+    const prevIsAdmin = prevMember?.isAdmin;
+    members = members.map((m) =>
+      m.id === memberId ? { ...m, isAdmin } : m,
+    );
+    if (currentUser && currentUser.id === memberId) {
+      const updatedUser = { ...currentUser, isAdmin };
+      currentUser = updatedUser;
+      localStorage.setItem("currentUser", JSON.stringify(updatedUser));
+    }
+    const mName = prevMember?.name || "スタッフ";
+    triggerToast(
+      isAdmin
+        ? `👑 ${mName}さんに管理者権限を付与しました。`
+        : `👤 ${mName}さんの管理者権限を剥奪しました。`,
+    );
+
     try {
       const res = await fetch("/api/members/update-admin", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: memberId, isAdmin }),
       });
-      if (res.ok) {
-        // Update local members array
-        members = members.map((m) => {
-          if (m.id === memberId) {
-            return { ...m, isAdmin };
-          }
-          return m;
-        });
-
-        // If the logged-in user changed their own privilege, update local session too
-        if (currentUser && currentUser.id === memberId) {
-          const updatedUser = { ...currentUser, isAdmin };
-          currentUser = updatedUser;
-          localStorage.setItem("currentUser", JSON.stringify(updatedUser));
-        }
-
-        const mName =
-          members.find((m) => m.id === memberId)?.name || "スタッフ";
-        triggerToast(
-          isAdmin
-            ? `👑 ${mName}さんに管理者権限を付与しました。`
-            : `👤 ${mName}さんの管理者権限を剥奪しました。`,
-        );
-      } else {
+      if (!res.ok) {
         throw new Error(await res.text());
       }
     } catch (error) {
       const err = /** @type {any} */ (error);
       console.error("管理者権限の更新に失敗しました:", err);
+      // ロールバック
+      members = members.map((m) =>
+        m.id === memberId ? { ...m, isAdmin: prevIsAdmin } : m,
+      );
+      if (currentUser && currentUser.id === memberId) {
+        const revertedUser = { ...currentUser, isAdmin: prevIsAdmin };
+        currentUser = revertedUser;
+        localStorage.setItem("currentUser", JSON.stringify(revertedUser));
+      }
       triggerToast(`⚠️ 権限更新失敗: ${err.message}`);
     }
   }
@@ -1224,7 +1230,10 @@
       .map((sub) => Number(sub.staffId)),
   );
   $: unsubmittedMembers = members.filter(
-    (m) => m.isActive !== false && !submittedStaffIds.has(Number(m.id)),
+    (m) =>
+      m.isActive !== false &&
+      !m.isOnLeave &&
+      !submittedStaffIds.has(Number(m.id)),
   );
   $: unsubmittedCount = unsubmittedMembers.length;
 
@@ -1814,7 +1823,8 @@
 
       const target = m.status === "trainee" ? "土日" : targetDays;
       const isOk = m.status === "trainee" ? count > 0 : count === targetDays;
-      const isUnder = m.status === "regular" && count < targetDays;
+      // 一時休止中はシフト対象外なので「日数不足」扱いにはしない
+      const isUnder = m.status === "regular" && count < targetDays && !m.isOnLeave;
       const isOver = m.status === "regular" && count > targetDays;
       return {
         ...m,
@@ -1828,7 +1838,8 @@
     })
     .filter(
       (m) =>
-        m.isActive !== false || (shiftStatus === "published" && m.count > 0),
+        (m.isActive !== false && !m.isOnLeave) ||
+        (shiftStatus === "published" && m.count > 0),
     );
 
   /**
@@ -2005,30 +2016,30 @@
    * @param {number | string} days
    */
   async function updateMemberTargetDays(memberId, days) {
+    const prevMember = members.find((m) => m.id === memberId);
+    const prevDays = prevMember?.targetDays;
+    members = members.map((m) =>
+      m.id === memberId ? { ...m, targetDays: Number(days) } : m,
+    );
+    triggerToast(
+      `🎯 ${prevMember?.name}さんの目標出勤日数を ${days} 日に更新しました。`,
+    );
+
     try {
       const res = await fetch("/api/members/update", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: memberId, targetDays: Number(days) }),
       });
-      if (res.ok) {
-        const data = await res.json();
-        // ローカルの members 配列を更新
-        members = members.map((m) => {
-          if (m.id === memberId) {
-            return { ...m, targetDays: Number(days) };
-          }
-          return m;
-        });
-        triggerToast(
-          `🎯 ${members.find((m) => m.id === memberId)?.name}さんの目標出勤日数を ${days} 日に更新しました。`,
-        );
-      } else {
+      if (!res.ok) {
         throw new Error(await res.text());
       }
     } catch (error) {
       const err = /** @type {any} */ (error);
       console.error("目標出勤日数の更新に失敗しました:", err);
+      members = members.map((m) =>
+        m.id === memberId ? { ...m, targetDays: prevDays } : m,
+      );
       triggerToast(`⚠️ 更新失敗: ${err.message}`);
     }
   }
@@ -2038,35 +2049,71 @@
    * @param {boolean} isActive
    */
   async function toggleMemberActive(memberId, isActive) {
+    const prevMember = members.find((m) => m.id === memberId);
+    members = members.map((m) =>
+      m.id === memberId ? { ...m, isActive } : m,
+    );
+    const mName = prevMember?.name || "スタッフ";
+    triggerToast(
+      isActive
+        ? `💚 ${mName}さんを有効（復職）に戻しました。`
+        : `📁 ${mName}さんを退職処理（非表示）にしました。`,
+    );
+
     try {
       const res = await fetch("/api/members/archive", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: memberId, isActive }),
       });
-      if (res.ok) {
-        // Update local members array
-        members = members.map((m) => {
-          if (m.id === memberId) {
-            return { ...m, isActive };
-          }
-          return m;
-        });
-
-        const mName =
-          members.find((m) => m.id === memberId)?.name || "スタッフ";
-        triggerToast(
-          isActive
-            ? `💚 ${mName}さんを有効（復職）に戻しました。`
-            : `📁 ${mName}さんを退職処理（非表示）にしました。`,
-        );
-      } else {
+      if (!res.ok) {
         throw new Error(await res.text());
       }
     } catch (error) {
       const err = /** @type {any} */ (error);
       console.error("メンバーのステータス更新に失敗しました:", err);
+      members = members.map((m) =>
+        m.id === memberId ? { ...m, isActive: prevMember?.isActive } : m,
+      );
       triggerToast(`⚠️ ステータス更新失敗: ${err.message}`);
+    }
+  }
+
+  /**
+   * 一時休止（入店できない期間）のON/OFFを切り替える。
+   * 対象者はシフト自動作成・未提出催促通知の対象から外れるが、
+   * 引退（isActive）とは別軸で管理し、いつでもワンタップで現場復帰させられる。
+   * @param {number} memberId
+   * @param {boolean} isOnLeave
+   */
+  async function toggleMemberLeave(memberId, isOnLeave) {
+    const prevMember = members.find((m) => m.id === memberId);
+    members = members.map((m) =>
+      m.id === memberId ? { ...m, isOnLeave } : m,
+    );
+    const mName = prevMember?.name || "スタッフ";
+    triggerToast(
+      isOnLeave
+        ? `🌙 ${mName}さんを一時休止にしました。`
+        : `☀️ ${mName}さんを現場復帰させました。`,
+    );
+
+    try {
+      const res = await fetch("/api/members/update", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: memberId, isOnLeave }),
+      });
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+    } catch (error) {
+      const err = /** @type {any} */ (error);
+      console.error("一時休止設定の更新に失敗しました:", err);
+      members = members.map((m) =>
+        m.id === memberId ? { ...m, isOnLeave: prevMember?.isOnLeave } : m,
+      );
+      triggerToast(`⚠️ 更新失敗: ${err.message}`);
     }
   }
 
@@ -2100,26 +2147,31 @@
    * @param {string[]} newRoles
    */
   async function updateMemberRoles(memberId, newRoles) {
+    const prevMember = members.find((m) => m.id === memberId);
+    members = members.map((m) =>
+      m.id === memberId
+        ? { ...m, roles: newRoles, role: newRoles[0] || "hall" }
+        : m,
+    );
+    triggerToast("🍳 役割設定を更新しました。");
+
     try {
       const res = await fetch("/api/members/update", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: memberId, roles: newRoles }),
       });
-      if (res.ok) {
-        members = members.map((m) => {
-          if (m.id === memberId) {
-            return { ...m, roles: newRoles, role: newRoles[0] || "hall" };
-          }
-          return m;
-        });
-        triggerToast("🍳 役割設定を更新しました。");
-      } else {
+      if (!res.ok) {
         throw new Error(await res.text());
       }
     } catch (error) {
       const err = /** @type {any} */ (error);
       console.error(err);
+      members = members.map((m) =>
+        m.id === memberId
+          ? { ...m, roles: prevMember?.roles, role: prevMember?.role }
+          : m,
+      );
       triggerToast(`⚠️ 役割の更新に失敗しました: ${err.message}`);
     }
   }
@@ -2129,26 +2181,27 @@
    * @param {string} newPasscode
    */
   async function updateMemberPasscode(memberId, newPasscode) {
+    const prevMember = members.find((m) => m.id === memberId);
+    members = members.map((m) =>
+      m.id === memberId ? { ...m, passcode: newPasscode } : m,
+    );
+    triggerToast("🔑 暗証番号（パスコード）を更新しました。");
+
     try {
       const res = await fetch("/api/members/update", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: memberId, passcode: newPasscode }),
       });
-      if (res.ok) {
-        members = members.map((m) => {
-          if (m.id === memberId) {
-            return { ...m, passcode: newPasscode };
-          }
-          return m;
-        });
-        triggerToast("🔑 暗証番号（パスコード）を更新しました。");
-      } else {
+      if (!res.ok) {
         throw new Error(await res.text());
       }
     } catch (error) {
       const err = /** @type {any} */ (error);
       console.error(err);
+      members = members.map((m) =>
+        m.id === memberId ? { ...m, passcode: prevMember?.passcode } : m,
+      );
       triggerToast(`⚠️ 暗証番号の更新に失敗しました: ${err.message}`);
     }
   }
@@ -2158,32 +2211,37 @@
    * @param {string} newStatus
    */
   async function updateMemberStatus(memberId, newStatus) {
+    const prevMember = members.find((m) => m.id === memberId);
+    members = members.map((m) =>
+      m.id === memberId
+        ? { ...m, status: newStatus, isTrainee: newStatus === "trainee" }
+        : m,
+    );
+    triggerToast(
+      `🔰 研修ステータスを ${newStatus === "trainee" ? "研修中" : "一般"} に更新しました。`,
+    );
+
     try {
       const res = await fetch("/api/members/update", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: memberId, status: newStatus }),
       });
-      if (res.ok) {
-        members = members.map((m) => {
-          if (m.id === memberId) {
-            return {
-              ...m,
-              status: newStatus,
-              isTrainee: newStatus === "trainee",
-            };
-          }
-          return m;
-        });
-        triggerToast(
-          `🔰 研修ステータスを ${newStatus === "trainee" ? "研修中" : "一般"} に更新しました。`,
-        );
-      } else {
+      if (!res.ok) {
         throw new Error(await res.text());
       }
     } catch (error) {
       const err = /** @type {any} */ (error);
       console.error(err);
+      members = members.map((m) =>
+        m.id === memberId
+          ? {
+              ...m,
+              status: prevMember?.status,
+              isTrainee: prevMember?.isTrainee,
+            }
+          : m,
+      );
       triggerToast(`⚠️ ステータスの更新に失敗しました: ${err.message}`);
     }
   }
@@ -2193,35 +2251,34 @@
    * @param {boolean} canHappyHour
    */
   async function toggleHappyHourAbility(memberId, canHappyHour) {
+    const prevMember = members.find((m) => m.id === memberId);
+    members = members.map((m) =>
+      m.id === memberId ? { ...m, canHappyHour } : m,
+    );
+    const mName = prevMember?.name || "スタッフ";
+    triggerToast(
+      canHappyHour
+        ? `🍻 ${mName}さんをハッピーアワー対応可能に設定しました。`
+        : `🍻 ${mName}さんをハッピーアワー対応不可に設定しました。`,
+    );
+
     try {
       const res = await fetch("/api/members/update", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: memberId, canHappyHour }),
       });
-      if (res.ok) {
-        members = members.map((m) => {
-          if (m.id === memberId) {
-            return {
-              ...m,
-              canHappyHour,
-            };
-          }
-          return m;
-        });
-        const mName =
-          members.find((m) => m.id === memberId)?.name || "スタッフ";
-        triggerToast(
-          canHappyHour
-            ? `🍻 ${mName}さんをハッピーアワー対応可能に設定しました。`
-            : `🍻 ${mName}さんをハッピーアワー対応不可に設定しました。`,
-        );
-      } else {
+      if (!res.ok) {
         throw new Error(await res.text());
       }
     } catch (error) {
       const err = /** @type {any} */ (error);
       console.error("ハッピーアワー対応設定の更新に失敗しました:", err);
+      members = members.map((m) =>
+        m.id === memberId
+          ? { ...m, canHappyHour: prevMember?.canHappyHour }
+          : m,
+      );
       triggerToast(`⚠️ 設定更新失敗: ${err.message}`);
     }
   }
@@ -4878,6 +4935,26 @@
               <button
                 type="button"
                 on:click={() => {
+                  managerStaffTab = "leave";
+                }}
+                class="flex-1 py-3 text-sm font-bold border-0 cursor-pointer transition-all
+                {managerStaffTab === 'leave'
+                  ? 'bg-white text-primary border-b-2 border-b-primary'
+                  : 'bg-slate-50/50 text-secondary hover:bg-slate-100/50'}"
+              >
+                🌙 一時休止中
+                {#if members.filter((m) => m.isActive !== false && m.isOnLeave).length > 0}
+                  <span
+                    class="ml-1 bg-slate-200 text-slate-600 text-[10px] px-1.5 py-0.5 rounded-full font-black"
+                    >{members.filter(
+                      (m) => m.isActive !== false && m.isOnLeave,
+                    ).length}</span
+                  >
+                {/if}
+              </button>
+              <button
+                type="button"
+                on:click={() => {
                   managerStaffTab = "retired";
                 }}
                 class="flex-1 py-3 text-sm font-bold border-0 cursor-pointer transition-all
@@ -4892,7 +4969,7 @@
             <!-- Active Staff Tab (現在いるスタッフ) -->
             {#if managerStaffTab === "active"}
               <div class="p-md space-y-sm">
-                {#each members.filter((m) => m.isActive !== false) as m}
+                {#each members.filter((m) => m.isActive !== false && !m.isOnLeave) as m}
                   <div
                     class="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 rounded-xl hover:bg-surface-container-low transition-colors border border-transparent border-b-slate-100/60 pb-4"
                   >
@@ -5032,6 +5109,21 @@
                         </button>
                       </div>
 
+                      <!-- 一時休止にするボタン -->
+                      <div class="flex flex-col items-start gap-1">
+                        <span
+                          class="text-[9px] md:text-transparent select-none hidden md:inline"
+                          >-</span
+                        >
+                        <button
+                          type="button"
+                          on:click={() => toggleMemberLeave(m.id, true)}
+                          class="text-amber-600 border border-amber-300 hover:bg-amber-50 px-3 py-1.5 rounded-full text-label-caps font-label-caps transition-colors cursor-pointer h-[28px] flex items-center justify-center"
+                        >
+                          🌙 一時休止にする
+                        </button>
+                      </div>
+
                       <!-- 引退にするボタン -->
                       <div class="flex flex-col items-start gap-1">
                         <span
@@ -5053,6 +5145,53 @@
                     class="text-xs text-slate-400 text-center py-6 font-medium"
                   >
                     現在いるスタッフはいません
+                  </p>
+                {/each}
+              </div>
+            {/if}
+
+            <!-- On-Leave Staff Tab (一時休止中) -->
+            {#if managerStaffTab === "leave"}
+              <div class="p-md space-y-sm">
+                {#each members.filter((m) => m.isActive !== false && m.isOnLeave) as m}
+                  <div
+                    class="flex items-center justify-between gap-sm p-3 rounded-xl bg-amber-50/50 border border-amber-100"
+                  >
+                    <button
+                      type="button"
+                      on:click={() => openWishPreviewModal(m)}
+                      class="flex items-center gap-3 bg-transparent border-0 cursor-pointer outline-none hover:opacity-85 text-left p-0 min-w-0"
+                      title={`${m.name}さんの希望カレンダーを表示`}
+                    >
+                      <div
+                        class="w-10 h-10 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center font-bold text-sm shrink-0"
+                      >
+                        {m.initialChar || m.name.charAt(0)}
+                      </div>
+                      <div class="truncate">
+                        <p
+                          class="text-sm font-semibold text-slate-800 hover:text-primary truncate"
+                        >
+                          {m.name} 🔍
+                        </p>
+                        <p class="text-[12px] text-amber-700 font-bold">
+                          🌙 一時休止中
+                        </p>
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      on:click={() => toggleMemberLeave(m.id, false)}
+                      class="text-primary border border-primary/30 hover:bg-primary/10 px-3 py-1.5 rounded-full text-label-caps font-label-caps transition-colors cursor-pointer shrink-0"
+                    >
+                      ☀️ 現場復帰させる
+                    </button>
+                  </div>
+                {:else}
+                  <p
+                    class="text-xs text-slate-400 text-center py-8 font-semibold"
+                  >
+                    一時休止中のメンバーはいません
                   </p>
                 {/each}
               </div>
@@ -5410,7 +5549,7 @@
                   class="w-full bg-slate-50 border border-slate-200 text-xs font-semibold rounded-xl px-3 py-2.5 text-slate-700 focus:outline-none focus:border-[#0071e3]"
                 >
                   <option value="">＋ メンバーの選択</option>
-                  {#each members.filter((m) => m.isActive !== false) as m}
+                  {#each members.filter((m) => m.isActive !== false && !m.isOnLeave) as m}
                     {#each m.roles || [m.role] as r}
                       <option value="{m.id}:{r}"
                         >{m.emoji}

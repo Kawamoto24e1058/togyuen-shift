@@ -36,7 +36,7 @@ export default async function handler(req, res) {
     const members = [];
     membersSnapshot.forEach(doc => {
       const data = doc.data();
-      if (data.isActive !== false) {
+      if (data.isActive !== false && data.isOnLeave !== true) {
         members.push({ id: Number(doc.id), ...data });
       }
     });
