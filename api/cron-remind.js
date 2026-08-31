@@ -28,24 +28,33 @@ export default async function handler(req, res) {
 
     let targetPeriod = "";
     let displayPeriodLabel = "";
+    let deadlineDay = date;
+    // 前日(24日・9日)に実行された場合は「明日が締切です」という文言にするためのフラグ
+    let isDayBefore = false;
 
-    // 25日の実行時は「翌月前半A期間」、10日の実行時は「当月後半B期間」のシフト希望をリマインド対象とします。
-    if (date === 25) {
+    // 24日/25日の実行時は「翌月前半A期間」、9日/10日の実行時は「当月後半B期間」のシフト希望をリマインド対象とします。
+    // 24日・9日は締切前日のリマインド、25日・10日は締切当日のリマインドです。
+    if (date === 24 || date === 25) {
       const nextMonthDate = new Date(year, jstDate.getMonth() + 1, 1);
       const nextYear = nextMonthDate.getFullYear();
       const nextMonth = nextMonthDate.getMonth() + 1;
       targetPeriod = `${nextYear}-${String(nextMonth).padStart(2, '0')}-A`;
       displayPeriodLabel = `${nextYear}年${nextMonth}月 前半(1日〜15日)分`;
-    } else if (date === 10) {
+      isDayBefore = date === 24;
+      deadlineDay = 25;
+    } else if (date === 9 || date === 10) {
       targetPeriod = `${year}-${String(month).padStart(2, '0')}-B`;
       displayPeriodLabel = `${year}年${month}月 後半(16日〜末日)分`;
+      isDayBefore = date === 9;
+      deadlineDay = 10;
     } else {
       // フォールバック (デバッグ・手動起動時用)
       targetPeriod = `${year}-${String(month).padStart(2, '0')}-B`;
       displayPeriodLabel = `${year}年${month}月 後半(16日〜末日)分`;
+      deadlineDay = 10;
     }
 
-    console.info(`[Cron Remind] Checking submissions. JST Date: ${date}th. Target Period: ${targetPeriod} (${displayPeriodLabel})`);
+    console.info(`[Cron Remind] Checking submissions. JST Date: ${date}th (${isDayBefore ? "締切前日" : "締切当日"}). Target Period: ${targetPeriod} (${displayPeriodLabel})`);
 
     // 1. Firestore 'members' から全有効スタッフを取得
     const membersSnap = await db.collection('members').get();
@@ -96,7 +105,9 @@ export default async function handler(req, res) {
 
     const payload = JSON.stringify({
       title: '🍎 桃牛苑 シフト提出のお願い',
-      body: `本日${date}日はシフト希望の締め切り日です。まだ提出されていない方は、お手数ですがアプリから入力をお願いします。`,
+      body: isDayBefore
+        ? `明日${deadlineDay}日はシフト希望の締め切り日です。まだ提出されていない方は、お忘れのないようアプリから入力をお願いします。`
+        : `本日${deadlineDay}日はシフト希望の締め切り日です。まだ提出されていない方は、お手数ですがアプリから入力をお願いします。`,
       url: '/'
     });
 

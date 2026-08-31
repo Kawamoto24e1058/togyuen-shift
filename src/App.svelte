@@ -1228,6 +1228,53 @@
   );
   $: unsubmittedCount = unsubmittedMembers.length;
 
+  // 提出済みスタッフ一覧（誰が・いつ提出したか管理画面で確認できるように）
+  $: submittedMembers = members
+    .filter((m) => m.isActive !== false && submittedStaffIds.has(Number(m.id)))
+    .map((m) => ({ ...m, submittedAt: getSubmittedAt(Number(m.id)) }))
+    .sort((a, b) => {
+      if (!a.submittedAt) return 1;
+      if (!b.submittedAt) return -1;
+      return new Date(b.submittedAt).getTime() - new Date(a.submittedAt).getTime();
+    });
+  $: submittedCount = submittedMembers.length;
+
+  /**
+   * 対象期間における、指定スタッフの提出日時（最新のもの）を取得する
+   * @param {number} memberId
+   */
+  function getSubmittedAt(memberId) {
+    const baseMonth = currentPeriod.substring(0, 7);
+    const relevantSubs = allSubmissions.filter(
+      (s) =>
+        Number(s.staffId) === memberId &&
+        s.isSubmitted === true &&
+        (s.period === currentPeriod || s.period === baseMonth || s.period.startsWith(baseMonth)),
+    );
+    if (relevantSubs.length === 0) return null;
+    return relevantSubs.reduce((latest, s) => {
+      if (!s.submittedAt) return latest;
+      if (!latest) return s.submittedAt;
+      return new Date(s.submittedAt) > new Date(latest) ? s.submittedAt : latest;
+    }, /** @type {string | null} */ (null));
+  }
+
+  /**
+   * @param {string | null} isoStr
+   */
+  function formatSubmittedAt(isoStr) {
+    if (!isoStr) return "";
+    return new Date(isoStr).toLocaleString("ja-JP", {
+      month: "numeric",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  // 要確認ダッシュボードの右側リストで「未提出」「提出済み」を切り替えるためのタブ状態
+  let dashboardStaffFilter = "unsubmitted"; // 'unsubmitted' | 'submitted'
+
   // LINEログイン・ユーザーセッション用ステート
   /** @type {Member | null} */
   let currentUser = null;
@@ -4361,57 +4408,105 @@
                     </div>
                   </div>
 
-                  <!-- 【右側：👥 未提出スタッフ】 -->
+                  <!-- 【右側：👥 提出状況（未提出 / 提出済み 切り替え）】 -->
                   <div class="flex flex-col space-y-3">
-                    <span
-                      class="text-xs font-bold text-slate-700 flex items-center gap-1 font-sans"
-                    >
-                      ⏳ 未提出のメンバー
-                      <span
-                        class="bg-slate-100 text-slate-600 text-[10px] px-2 py-0.5 rounded-full font-black font-sans"
+                    <div class="flex items-center justify-between gap-2">
+                      <div
+                        class="flex bg-surface-container rounded-lg p-0.5 gap-0.5 font-sans"
                       >
-                        {unsubmittedCount}名
-                      </span>
-                    </span>
+                        <button
+                          type="button"
+                          on:click={() => (dashboardStaffFilter = "unsubmitted")}
+                          class="px-2.5 py-1.5 rounded-md text-[11px] font-bold transition-all border-0 cursor-pointer {dashboardStaffFilter ===
+                          'unsubmitted'
+                            ? 'bg-white text-slate-800 shadow-sm'
+                            : 'bg-transparent text-slate-500 hover:bg-white/50'}"
+                        >
+                          ⏳ 未提出 {unsubmittedCount}名
+                        </button>
+                        <button
+                          type="button"
+                          on:click={() => (dashboardStaffFilter = "submitted")}
+                          class="px-2.5 py-1.5 rounded-md text-[11px] font-bold transition-all border-0 cursor-pointer {dashboardStaffFilter ===
+                          'submitted'
+                            ? 'bg-white text-slate-800 shadow-sm'
+                            : 'bg-transparent text-slate-500 hover:bg-white/50'}"
+                        >
+                          ✅ 提出済み {submittedCount}名
+                        </button>
+                      </div>
+                    </div>
 
                     <div
                       class="flex flex-col justify-between flex-grow space-y-4"
                     >
-                      <!-- 未提出スタッフバッジ一覧 -->
-                      <div
-                        class="max-h-[160px] overflow-y-auto pr-1 flex flex-wrap gap-1.5 align-content-start hide-scrollbar"
-                      >
-                        {#each unsubmittedMembers as m}
-                          {@const isKitchen = m.roles?.includes("kitchen")}
-                          <span
-                            class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold border border-solid border-slate-200 bg-slate-50 text-slate-700 select-none font-sans"
-                          >
-                            {m.name}
-                            {isKitchen ? "🍳" : "🛎"}
-                          </span>
-                        {:else}
-                          <div
-                            class="w-full text-center py-6 text-emerald-700 font-bold text-xs bg-emerald-50/50 rounded-xl border border-solid border-emerald-100 font-sans"
-                          >
-                            🎉 全員提出済みです！
-                          </div>
-                        {/each}
-                      </div>
-
-                      <!-- 催促通知ボタン -->
-                      <div class="pt-2">
-                        <button
-                          type="button"
-                          on:click={handleSendRemind}
-                          disabled={unsubmittedCount === 0}
-                          class="w-full py-2.5 px-4 bg-primary text-on-primary rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm hover:opacity-90 active:scale-[0.98] border-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-all font-sans"
+                      {#if dashboardStaffFilter === "unsubmitted"}
+                        <!-- 未提出スタッフバッジ一覧 -->
+                        <div
+                          class="max-h-[160px] overflow-y-auto pr-1 flex flex-wrap gap-1.5 align-content-start hide-scrollbar"
                         >
-                          <span class="material-symbols-outlined text-sm"
-                            >notifications_active</span
+                          {#each unsubmittedMembers as m}
+                            {@const isKitchen = m.roles?.includes("kitchen")}
+                            <span
+                              class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10px] font-bold border border-solid border-slate-200 bg-slate-50 text-slate-700 select-none font-sans"
+                            >
+                              {m.name}
+                              {isKitchen ? "🍳" : "🛎"}
+                            </span>
+                          {:else}
+                            <div
+                              class="w-full text-center py-6 text-emerald-700 font-bold text-xs bg-emerald-50/50 rounded-xl border border-solid border-emerald-100 font-sans"
+                            >
+                              🎉 全員提出済みです！
+                            </div>
+                          {/each}
+                        </div>
+
+                        <!-- 催促通知ボタン -->
+                        <div class="pt-2">
+                          <button
+                            type="button"
+                            on:click={handleSendRemind}
+                            disabled={unsubmittedCount === 0}
+                            class="w-full py-2.5 px-4 bg-primary text-on-primary rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm hover:opacity-90 active:scale-[0.98] border-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed transition-all font-sans"
                           >
-                          未提出者に催促通知を送る
-                        </button>
-                      </div>
+                            <span class="material-symbols-outlined text-sm"
+                              >notifications_active</span
+                            >
+                            未提出者に催促通知を送る
+                          </button>
+                        </div>
+                      {:else}
+                        <!-- 提出済みスタッフ一覧（クリックで希望カレンダーをプレビュー） -->
+                        <div
+                          class="max-h-[220px] overflow-y-auto pr-1 space-y-1.5 hide-scrollbar"
+                        >
+                          {#each submittedMembers as m}
+                            <button
+                              type="button"
+                              on:click={() => openWishPreviewModal(m)}
+                              class="w-full flex items-center justify-between gap-2 px-3 py-2 rounded-xl border border-solid border-slate-200 bg-slate-50 hover:border-primary/40 hover:bg-primary/5 transition-all text-left cursor-pointer font-sans"
+                              title={`${m.name}さんの希望カレンダーを表示`}
+                            >
+                              <span
+                                class="text-[11px] font-bold text-slate-700 truncate"
+                                >{m.name}</span
+                              >
+                              <span
+                                class="text-[10px] font-semibold text-slate-400 shrink-0"
+                              >
+                                {formatSubmittedAt(m.submittedAt)} 提出 🔍
+                              </span>
+                            </button>
+                          {:else}
+                            <div
+                              class="w-full text-center py-6 text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200 font-sans text-xs"
+                            >
+                              まだ提出したスタッフはいません
+                            </div>
+                          {/each}
+                        </div>
+                      {/if}
                     </div>
                   </div>
                 </div>

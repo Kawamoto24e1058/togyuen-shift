@@ -22,7 +22,7 @@
   "crons": [
     {
       "path": "/api/cron-remind",
-      "schedule": "0 3 10,25 * *"
+      "schedule": "0 3 9,10,24,25 * *"
     },
     {
       "path": "/api/cron-publish",
