@@ -443,8 +443,10 @@
     if (!member) return "A";
     const memberId = Number(member.id);
     const baseMonth = currentPeriod.substring(0, 7);
+    // 「該当期間(A/B)」の提出データのみを見る。他方の半期や過去の提出を巻き込まないよう
+    // 完全一致（現行の period 値、または旧形式の月単位の period 値）のみを対象とする。
     const sub = allSubmissions.find(
-      (s) => Number(s.staffId) === memberId && (s.period === currentPeriod || s.period.startsWith(baseMonth)),
+      (s) => Number(s.staffId) === memberId && (s.period === currentPeriod || s.period === baseMonth),
     );
     return sub?.submitPattern || "A";
   })();
@@ -455,8 +457,9 @@
     const memberId = Number(member.id);
     const baseMonth = currentPeriod.substring(0, 7);
 
+    // 該当期間(A/B)ぴったりの提出のみを対象とする（他方の半期の古い提出を「提出済み」と誤表示しないため）
     const relevantSubs = allSubmissions.filter(
-      (s) => Number(s.staffId) === memberId && (s.period === currentPeriod || s.period.startsWith(baseMonth)),
+      (s) => Number(s.staffId) === memberId && (s.period === currentPeriod || s.period === baseMonth),
     );
 
     if (relevantSubs.length === 0) return false;
@@ -1223,9 +1226,12 @@
   $: isAllShiftsValid = DATES.every(
     (d) => validationResults[d.dateStr]?.isValid !== false,
   );
+  // 「該当期間(A/B)ぴったり」の提出のみをカウントする。以前は startsWith(baseMonth) で
+  // 同じ月のもう片方の半期（例: 9月後半を見ているのに9月前半の提出）まで拾ってしまい、
+  // 前の期間の提出者がいつまでも「提出済み」として残り続けるバグがあったため修正。
   $: submittedStaffIds = new Set(
     allSubmissions
-      .filter((sub) => sub.period === currentPeriod || sub.period === currentPeriod.substring(0, 7) || sub.period.startsWith(currentPeriod.substring(0, 7)))
+      .filter((sub) => sub.period === currentPeriod || sub.period === currentPeriod.substring(0, 7))
       .filter((sub) => sub.isSubmitted === true)
       .map((sub) => Number(sub.staffId)),
   );
@@ -1258,7 +1264,7 @@
       (s) =>
         Number(s.staffId) === memberId &&
         s.isSubmitted === true &&
-        (s.period === currentPeriod || s.period === baseMonth || s.period.startsWith(baseMonth)),
+        (s.period === currentPeriod || s.period === baseMonth),
     );
     if (relevantSubs.length === 0) return null;
     return relevantSubs.reduce((latest, s) => {
@@ -1663,8 +1669,15 @@
         ]);
 
         // 最新のメンバー情報が得られたらキャッシュを検証・最新化
+        // （isActive===false、つまり引退・重複整理済みのメンバーIDでは復元しない。
+        //   同姓同名の重複登録を後で1つに整理した際、古い方のIDがキャッシュに
+        //   残っているデバイスがあると、シフトは新IDに紐づいているのに
+        //   ログインは古いIDのまま維持されてしまい、「自分のシフト」の
+        //   ハイライトだけが一致しなくなる不具合があったため。）
         if (currentUser && currentUser.id) {
-          const freshMember = members.find((m) => m.id === currentUser.id);
+          const freshMember = members.find(
+            (m) => m.id === currentUser.id && m.isActive !== false,
+          );
           if (freshMember) {
             const refreshedUser = {
               ...currentUser,
