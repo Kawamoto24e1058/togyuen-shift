@@ -631,23 +631,6 @@
   /**
    * 名前検索でのログイン確定。パスコードが一致した場合のみログインする。
    */
-  async function handleRecoveryLoginConfirm() {
-    if (!selectedQuickLoginMember) return;
-    const input = quickLoginPasscode.trim();
-    const expected = String(
-      selectedQuickLoginMember.passcode || "8888",
-    ).trim();
-    if (!input) {
-      triggerToast("⚠️ パスコードを入力してください。");
-      return;
-    }
-    if (input !== expected) {
-      triggerToast("⚠️ パスコードが違います。もう一度お試しください。");
-      return;
-    }
-    await handleQuickLoginSelect(selectedQuickLoginMember);
-  }
-
   // 管理者設定ダッシュボード用（動的充足率 ＆ 警告アラート）
   $: firstAlertDate = Object.keys(validationResults).find(
     (date) =>
@@ -3339,88 +3322,37 @@
                     名前で検索してログイン
                   </p>
 
-                  {#if !selectedQuickLoginMember}
-                    <input
-                      type="text"
-                      bind:value={staffSearchQuery}
-                      placeholder="お名前の一部を入力（例: 川本）"
-                      class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary transition-colors mb-3"
-                    />
-                    {#if staffSearchQuery.trim().length > 0}
-                      <div class="flex flex-col gap-2 max-h-[220px] overflow-y-auto hide-scrollbar">
-                        {#each staffSearchResults as m}
-                          <button
-                            type="button"
-                            on:click={() => {
-                              selectedQuickLoginMember = m;
-                              quickLoginPasscode = "";
-                            }}
-                            class="w-full flex items-center gap-3 p-3 rounded-xl border border-slate-200 bg-slate-50 hover:border-primary/40 hover:bg-primary/5 transition-all text-left cursor-pointer"
+                  <input
+                    type="text"
+                    bind:value={staffSearchQuery}
+                    placeholder="お名前の一部を入力（例: 川本）"
+                    class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary transition-colors mb-3"
+                  />
+                  {#if staffSearchQuery.trim().length > 0}
+                    <div class="flex flex-col gap-2 max-h-[220px] overflow-y-auto hide-scrollbar">
+                      {#each staffSearchResults as m}
+                        <button
+                          type="button"
+                          on:click={() => handleQuickLoginSelect(m)}
+                          class="w-full flex items-center gap-3 p-3 rounded-xl border border-slate-200 bg-slate-50 hover:border-primary/40 hover:bg-primary/5 transition-all text-left cursor-pointer"
+                        >
+                          <div
+                            class="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0"
                           >
-                            <div
-                              class="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0"
-                            >
-                              {m.initialChar || m.name.charAt(0)}
-                            </div>
-                            <span class="text-xs font-bold text-slate-800"
-                              >{m.name}</span
-                            >
-                          </button>
-                        {:else}
-                          <p
-                            class="text-xs text-slate-400 text-center py-4 font-medium"
+                            {m.initialChar || m.name.charAt(0)}
+                          </div>
+                          <span class="text-xs font-bold text-slate-800"
+                            >{m.name}</span
                           >
-                            該当するスタッフが見つかりません
-                          </p>
-                        {/each}
-                      </div>
-                    {/if}
-                  {:else}
-                    <div
-                      class="flex items-center gap-3 p-3 rounded-xl border border-primary/30 bg-primary/5 mb-3"
-                    >
-                      <div
-                        class="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0"
-                      >
-                        {selectedQuickLoginMember.initialChar ||
-                          selectedQuickLoginMember.name.charAt(0)}
-                      </div>
-                      <span class="text-xs font-bold text-slate-800"
-                        >{selectedQuickLoginMember.name} さんとしてログイン</span
-                      >
+                        </button>
+                      {:else}
+                        <p
+                          class="text-xs text-slate-400 text-center py-4 font-medium"
+                        >
+                          該当するスタッフが見つかりません
+                        </p>
+                      {/each}
                     </div>
-                    <input
-                      type="password"
-                      inputmode="numeric"
-                      bind:value={quickLoginPasscode}
-                      placeholder="パスコードを入力"
-                      class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary transition-colors mb-3"
-                      on:keydown={(e) => {
-                        if (e.key === "Enter") handleRecoveryLoginConfirm();
-                      }}
-                    />
-                    <div class="flex gap-2">
-                      <button
-                        type="button"
-                        on:click={() => {
-                          selectedQuickLoginMember = null;
-                          quickLoginPasscode = "";
-                        }}
-                        class="flex-1 py-2.5 rounded-xl border border-slate-200 text-slate-500 text-xs font-bold cursor-pointer bg-transparent"
-                      >
-                        戻る
-                      </button>
-                      <button
-                        type="button"
-                        on:click={handleRecoveryLoginConfirm}
-                        class="flex-[2] py-2.5 rounded-xl bg-primary text-on-primary text-xs font-bold cursor-pointer border-0 shadow-sm"
-                      >
-                        ログイン
-                      </button>
-                    </div>
-                    <p class="text-[10px] text-slate-400 mt-2 leading-relaxed">
-                      パスコードが分からない場合は、店長（管理者）に確認してください。
-                    </p>
                   {/if}
                 {/if}
               </div>
