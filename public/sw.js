@@ -1,4 +1,4 @@
-const CACHE_NAME = 'togyuen-shift-v2';
+const CACHE_NAME = 'togyuen-shift-v3';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',

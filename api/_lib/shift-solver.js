@@ -297,11 +297,21 @@ export function generateShift(data) {
 
           // キッチン/ホールが維持されるか確認
           const removedRole = assignments[d][m.id];
-          const remainingRoles = Object.entries(assignments[d])
-            .filter(([id, r]) => r !== null && Number(id) !== m.id)
-            .map(([, r]) => r);
+          const remainingEntries = Object.entries(assignments[d])
+            .filter(([id, r]) => r !== null && Number(id) !== m.id);
+          const remainingRoles = remainingEntries.map(([, r]) => r);
           if (removedRole === 'kitchen' && !remainingRoles.includes('kitchen')) continue;
           if (removedRole === 'hall'    && !remainingRoles.includes('hall'))    continue;
+
+          // 同じカテゴリに残るのが研修生だけ（通常スタッフが0人）になる場合は外さない。
+          // 研修生は必ず同じカテゴリの通常スタッフと一緒に勤務する必要があるため。
+          const sameRoleRemaining = remainingEntries.filter(([, r]) => r === removedRole);
+          const sameRoleAllTrainee =
+            sameRoleRemaining.length > 0 &&
+            sameRoleRemaining.every(([id]) =>
+              isTrainee(members.find((mm) => mm.id === Number(id))),
+            );
+          if (sameRoleAllTrainee) continue;
 
           assignments[d][m.id] = null;
           improved = true;
@@ -321,9 +331,24 @@ export function generateShift(data) {
           const traineeOnDay = Object.entries(assignments[d])
             .some(([id, r]) => r !== null && isTrainee(members.find(mm => mm.id === Number(id))));
           const maxAllowed = Math.max(2, numLocked) + (traineeOnDay ? 1 : 0);
-          if (dayCount >= maxAllowed + 1) continue; // 上限超え
+          // 以前は `+1` されていたため、研修生がいて既に適正人数(3名)に達している日にも
+          // 4人目を追加してしまい、研修生と同じカテゴリではなく余った方の役割
+          // （例: 研修生がホールなのにキッチンがもう1人）に無駄に人を増やす不具合があった。
+          if (dayCount >= maxAllowed) continue; // 上限超え
 
-          const role = m.roles.includes('hall') ? 'hall' : m.roles[0];
+          // 手薄な役割（まだ誰も入っていないカテゴリ）を優先して埋める。
+          // 研修生がいる日であれば、研修生と同じカテゴリが既に埋まっているはずなので
+          // 通常はもう片方のカテゴリに入ることになる。
+          const kitchenFilledDay = Object.values(assignments[d]).includes('kitchen');
+          const hallFilledDay = Object.values(assignments[d]).includes('hall');
+          let role;
+          if (!kitchenFilledDay && m.roles.includes('kitchen')) {
+            role = 'kitchen';
+          } else if (!hallFilledDay && m.roles.includes('hall')) {
+            role = 'hall';
+          } else {
+            role = m.roles.includes('hall') ? 'hall' : m.roles[0];
+          }
           assignments[d][m.id] = role;
           improved = true;
         }
