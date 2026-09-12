@@ -923,6 +923,17 @@
   let customStartDateInput = "";
   let customEndDateInput = "";
   let customNoteInput = "";
+  // 特別期間設定パネルの詳細（締切・メモ）を表示するかどうか。通常は「期間を変える」だけで
+  // 用が済むケースが大半なので、初期状態は畳んでおいてシンプルに見せる。
+  let showPeriodSettingsDetails = false;
+  // 「独立した特別募集枠を作る」機能はほぼ使われないため、詳細設定の中に畳んで表示する。
+  let showSpecialPeriodsAdvanced = false;
+
+  function scrollToSpecialPeriodPanel() {
+    document
+      .getElementById("special-period-panel")
+      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   // 大型連休等の特別シフト募集枠 (special_shift_periods) ステート
   /** @type {any[]} */
@@ -4367,6 +4378,42 @@
               </div>
             </div>
 
+            <!-- 特別期間設定への状態インジケーター兼ショートカット (設定パネルが下の方に埋もれていて
+                 見つけにくい問題への対策として、対象期間の状態を常にここで一目で確認できるようにする) -->
+            <button
+              type="button"
+              on:click={scrollToSpecialPeriodPanel}
+              class="w-full flex items-center justify-between gap-2 p-3 rounded-xl border border-solid cursor-pointer text-left mb-4 transition-all font-sans
+              {activeCustomSetting
+                ? 'bg-amber-50 border-amber-200 hover:border-amber-300'
+                : 'bg-slate-50 border-slate-200 hover:border-slate-300'}"
+            >
+              <span class="flex items-center gap-2 text-xs font-bold {activeCustomSetting ? 'text-amber-800' : 'text-slate-600'}">
+                <span>{activeCustomSetting ? "⚙️" : "📅"}</span>
+                {#if activeCustomSetting}
+                  {currentPeriodLabel} は特別設定中：{activeCustomSetting.customStartDate ||
+                    "開始日そのまま"} 〜 {activeCustomSetting.customEndDate ||
+                    "終了日そのまま"}
+                  {#if activeCustomSetting.deadlineDate}
+                    （締切: {new Date(
+                      activeCustomSetting.deadlineDate,
+                    ).toLocaleString("ja-JP", {
+                      month: "numeric",
+                      day: "numeric",
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}）
+                  {/if}
+                {:else}
+                  {currentPeriodLabel} は通常設定（特別な期間変更・締切なし）
+                {/if}
+              </span>
+              <span class="text-[10px] font-bold text-slate-400 flex items-center gap-0.5 shrink-0">
+                設定を見る
+                <span class="material-symbols-outlined text-sm">chevron_right</span>
+              </span>
+            </button>
+
             <!-- Alert Banner (動的警告バインド) -->
             {#if firstAlertDate && firstAlertMsg}
               {@const alertDateParts = firstAlertDate.split("-")}
@@ -4824,156 +4871,23 @@
             </div>
 
             <div class="flex flex-col gap-6">
-              <!-- 🌟 大型連休・特別シフト募集枠の管理パネル (お盆・GW・年末年始等) -->
+              <!-- 📅 特別期間・営業日の設定パネル (旧「特別募集枠」「特別設定」の2枚を統合)
+                   「期間を変える」を主役にし、締切日時やメモ・独立募集枠の作成は詳細設定として畳んでおく -->
               <div
-                class="bg-white p-6 rounded-[20px] border border-orange-200 shadow-soft space-y-4 bg-gradient-to-br from-orange-50/30 via-white to-amber-50/20 font-sans"
+                id="special-period-panel"
+                class="bg-white p-6 rounded-[20px] border border-amber-200/80 shadow-soft space-y-5 bg-gradient-to-br from-amber-50/20 to-white scroll-mt-4"
               >
-                <div class="flex items-center justify-between">
+                <div class="flex items-center justify-between flex-wrap gap-2">
                   <div class="flex items-center gap-2">
-                    <span class="text-2xl">🌟</span>
-                    <div>
-                      <h4 class="text-xs font-black text-slate-800 tracking-tight">
-                        大型連休・特別シフト募集枠の管理 (お盆・GW・年末年始等)
-                      </h4>
-                      <p class="text-[10px] text-slate-500 font-medium">
-                        対象日付範囲と特別希望締切日時を指定して、専用の募集枠を作成・制御します
-                      </p>
-                    </div>
-                  </div>
-                  <span
-                    class="px-2.5 py-1 rounded-full text-[9px] font-black bg-orange-500 text-white shadow-xs"
-                  >
-                    特別募集枠 {specialPeriodsList.filter(s => s.isActive !== false).length}件有効
-                  </span>
-                </div>
-
-                <!-- 新規作成フォーム -->
-                <div class="bg-white/80 p-4 rounded-xl border border-orange-100 space-y-3">
-                  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div>
-                      <label for="special-title-input" class="text-[10px] font-bold text-slate-700 block mb-1">
-                        🏷 募集枠タイトル
-                      </label>
-                      <input
-                        id="special-title-input"
-                        type="text"
-                        placeholder="例：お盆期間特別シフト"
-                        bind:value={specialTitleInput}
-                        class="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-white focus:outline-none focus:border-orange-500 box-border"
-                      />
-                    </div>
-                    <div>
-                      <label for="special-deadline-input" class="text-[10px] font-bold text-slate-700 block mb-1">
-                        ⏰ 希望提出締切日時
-                      </label>
-                      <input
-                        id="special-deadline-input"
-                        type="datetime-local"
-                        bind:value={specialDeadlineInput}
-                        class="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-white font-mono focus:outline-none focus:border-orange-500 box-border"
-                      />
-                    </div>
-                  </div>
-
-                  <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div>
-                      <label for="special-start-date" class="text-[10px] font-bold text-slate-700 block mb-1">
-                        📅 対象開始日
-                      </label>
-                      <input
-                        id="special-start-date"
-                        type="date"
-                        bind:value={specialStartDateInput}
-                        class="w-full text-xs p-2 rounded-xl border border-slate-200 bg-white font-mono focus:outline-none focus:border-orange-500 box-border"
-                      />
-                    </div>
-                    <div>
-                      <label for="special-end-date" class="text-[10px] font-bold text-slate-700 block mb-1">
-                        📅 対象終了日
-                      </label>
-                      <input
-                        id="special-end-date"
-                        type="date"
-                        bind:value={specialEndDateInput}
-                        class="w-full text-xs p-2 rounded-xl border border-slate-200 bg-white font-mono focus:outline-none focus:border-orange-500 box-border"
-                      />
-                    </div>
-                  </div>
-
-                  <button
-                    type="button"
-                    on:click={() => saveSpecialPeriod()}
-                    class="w-full bg-gradient-to-r from-orange-500 to-amber-500 text-white font-bold text-xs py-2.5 rounded-xl border-0 shadow-xs hover:opacity-90 active:scale-98 cursor-pointer transition-all flex items-center justify-center gap-1 mt-2"
-                  >
-                    <span class="material-symbols-outlined text-sm">add_circle</span>
-                    <span>特別募集枠を新規作成</span>
-                  </button>
-                </div>
-
-                <!-- 登録済み募集枠リスト -->
-                {#if specialPeriodsList.length > 0}
-                  <div class="space-y-2 pt-2">
-                    <p class="text-[10px] font-bold text-slate-500">登録済みの特別募集枠一覧</p>
-                    <div class="space-y-2 max-h-[220px] overflow-y-auto pr-1 hide-scrollbar">
-                      {#each specialPeriodsList as sp}
-                        <div
-                          class="flex items-center justify-between p-3 rounded-xl border transition-all {sp.isActive !== false ? 'bg-white border-orange-200 shadow-xs' : 'bg-slate-50 border-slate-200 opacity-60'}"
-                        >
-                          <div class="space-y-0.5">
-                            <div class="flex items-center gap-2">
-                              <span class="font-bold text-xs text-slate-800">{sp.title}</span>
-                              <span class="text-[9px] font-bold px-2 py-0.5 rounded-full {sp.isActive !== false ? 'bg-orange-100 text-orange-700' : 'bg-slate-200 text-slate-600'}">
-                                {sp.isActive !== false ? '有効' : '無効'}
-                              </span>
-                            </div>
-                            <p class="text-[10px] text-slate-500 font-mono">
-                              期間: {sp.startDate} 〜 {sp.endDate}
-                            </p>
-                            <p class="text-[10px] text-orange-600 font-medium">
-                              締切: {new Date(sp.deadlineDate).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
-                            </p>
-                          </div>
-
-                          <div class="flex items-center gap-2">
-                            <button
-                              type="button"
-                              on:click={() => saveSpecialPeriod(sp)}
-                              class="text-[10px] font-bold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 cursor-pointer"
-                            >
-                              {sp.isActive !== false ? '無効にする' : '有効にする'}
-                            </button>
-                            <button
-                              type="button"
-                              on:click={() => deleteSpecialPeriod(sp.id)}
-                              class="text-rose-500 hover:text-rose-700 p-1 border-0 bg-transparent cursor-pointer"
-                              title="削除"
-                            >
-                              <span class="material-symbols-outlined text-sm">delete</span>
-                            </button>
-                          </div>
-                        </div>
-                      {/each}
-                    </div>
-                  </div>
-                {/if}
-              </div>
-
-              <!-- ⚙️ 大型連休・変則期間 特別設定パネル (オーバーライド) -->
-              <div
-                class="bg-white p-6 rounded-[20px] border border-amber-200/80 shadow-soft space-y-4 bg-gradient-to-br from-amber-50/20 to-white"
-              >
-                <div class="flex items-center justify-between">
-                  <div class="flex items-center gap-2">
-                    <span class="text-xl">⚙️</span>
+                    <span class="text-xl">📅</span>
                     <div>
                       <h4
                         class="text-xs font-black text-slate-800 tracking-tight"
                       >
-                        大型連休・変則期間の特別設定 (オーバーライド)
+                        特別期間・営業日の設定
                       </h4>
                       <p class="text-[10px] text-slate-500 font-medium">
-                        対象期間 ({currentPeriod})
-                        の締め切り日やシフト対象範囲を個別指定で手動上書きします
+                        お盆・GW・年末年始などで、対象期間の日数を伸ばしたり縮めたりできます
                       </p>
                     </div>
                   </div>
@@ -4992,72 +4906,85 @@
                   {/if}
                 </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
-                  <!-- 特別締め切り日時設定 -->
-                  <div class="space-y-1.5">
-                    <label
-                      for="custom-deadline-input"
-                      class="text-[10px] font-bold text-slate-700 block"
-                    >
-                      ⏰ 希望受付締切日時 (任意指定)
-                    </label>
+                <!-- 主役: この期間の対象日を変える -->
+                <div class="bg-white/80 p-4 rounded-xl border border-amber-100 space-y-2">
+                  <label
+                    for="custom-end-date-input"
+                    class="text-[11px] font-bold text-slate-700 block"
+                  >
+                    🗓 {currentPeriodLabel} の対象日を変更する
+                  </label>
+                  <div class="flex items-center gap-2">
                     <input
-                      id="custom-deadline-input"
-                      type="datetime-local"
-                      bind:value={customDeadlineInput}
+                      id="custom-start-date-input"
+                      type="date"
+                      bind:value={customStartDateInput}
                       class="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-white font-mono focus:outline-none focus:border-amber-500 box-border"
                     />
-                    <p class="text-[9px] text-slate-400">
-                      未指定時はデフォルト (10日/25日 23:59)
-                    </p>
+                    <span class="text-xs font-bold text-slate-400">〜</span>
+                    <input
+                      id="custom-end-date-input"
+                      type="date"
+                      aria-label="変則対象シフト範囲（終了日）"
+                      bind:value={customEndDateInput}
+                      class="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-white font-mono focus:outline-none focus:border-amber-500 box-border"
+                    />
                   </div>
+                  <p class="text-[10px] text-slate-400">
+                    例: 「15日までのはずを20日まで」なら、終了日だけ入力すればOKです。未指定の項目はデフォルト
+                    (1〜15日 / 16〜末日) のままになります。
+                  </p>
+                </div>
 
-                  <!-- 変則対象期間 (開始日〜終了日) -->
-                  <div class="space-y-1.5">
-                    <label
-                      for="custom-start-date-input"
-                      class="text-[10px] font-bold text-slate-700 block"
-                    >
-                      📅 変則対象シフト範囲 (任意指定)
-                    </label>
-                    <div class="flex items-center gap-2">
+                <!-- 詳細設定（締切日時・メモ）の折りたたみ -->
+                <button
+                  type="button"
+                  on:click={() => (showPeriodSettingsDetails = !showPeriodSettingsDetails)}
+                  class="flex items-center gap-1 text-[11px] font-bold text-amber-700 hover:text-amber-800 bg-transparent border-0 cursor-pointer p-0"
+                >
+                  <span class="material-symbols-outlined text-sm"
+                    >{showPeriodSettingsDetails ? "expand_less" : "expand_more"}</span
+                  >
+                  詳細設定（希望締切日時・メモ）
+                </button>
+
+                {#if showPeriodSettingsDetails}
+                  <div class="space-y-4 pl-1 border-l-2 border-amber-100">
+                    <div class="space-y-1.5 pl-3">
+                      <label
+                        for="custom-deadline-input"
+                        class="text-[10px] font-bold text-slate-700 block"
+                      >
+                        ⏰ 希望受付締切日時 (任意指定)
+                      </label>
                       <input
-                        id="custom-start-date-input"
-                        type="date"
-                        bind:value={customStartDateInput}
-                        class="w-full text-xs p-2 rounded-xl border border-slate-200 bg-white font-mono focus:outline-none focus:border-amber-500 box-border"
+                        id="custom-deadline-input"
+                        type="datetime-local"
+                        bind:value={customDeadlineInput}
+                        class="w-full max-w-xs text-xs p-2.5 rounded-xl border border-slate-200 bg-white font-mono focus:outline-none focus:border-amber-500 box-border"
                       />
-                      <span class="text-xs font-bold text-slate-400">〜</span>
+                      <p class="text-[9px] text-slate-400">
+                        未指定時はデフォルト (10日/25日 23:59)
+                      </p>
+                    </div>
+
+                    <div class="space-y-1 pl-3">
+                      <label
+                        for="custom-note-input"
+                        class="text-[10px] font-bold text-slate-700 block"
+                      >
+                        📝 設定メモ (例: GW特別進行・年末年始短縮)
+                      </label>
                       <input
-                        id="custom-end-date-input"
-                        type="date"
-                        aria-label="変則対象シフト範囲（終了日）"
-                        bind:value={customEndDateInput}
-                        class="w-full text-xs p-2 rounded-xl border border-slate-200 bg-white font-mono focus:outline-none focus:border-amber-500 box-border"
+                        id="custom-note-input"
+                        type="text"
+                        bind:value={customNoteInput}
+                        placeholder="例: 年末年始特別締め切り"
+                        class="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-white focus:outline-none focus:border-amber-500 box-border"
                       />
                     </div>
-                    <p class="text-[9px] text-slate-400">
-                      未指定時はデフォルト (1〜15日 / 16〜末日)
-                    </p>
                   </div>
-                </div>
-
-                <!-- メモ欄 -->
-                <div class="space-y-1">
-                  <label
-                    for="custom-note-input"
-                    class="text-[10px] font-bold text-slate-700 block"
-                  >
-                    📝 設定メモ (例: GW特別進行・年末年始短縮)
-                  </label>
-                  <input
-                    id="custom-note-input"
-                    type="text"
-                    bind:value={customNoteInput}
-                    placeholder="例: 年末年始特別締め切り"
-                    class="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-white focus:outline-none focus:border-amber-500 box-border"
-                  />
-                </div>
+                {/if}
 
                 <!-- アクションボタン -->
                 <div
@@ -5077,8 +5004,148 @@
                     on:click={() => saveCustomShiftSettings(currentPeriod)}
                     class="px-4 py-2.5 text-xs font-bold text-white bg-amber-500 hover:bg-amber-600 rounded-xl shadow-xs cursor-pointer transition-all border-0"
                   >
-                    💾 {currentPeriod} の特別設定を保存
+                    💾 {currentPeriodLabel} の設定を保存
                   </button>
+                </div>
+
+                <!-- 高度な設定: 独立した特別募集枠を作る（通常のA/B期間とは別枠の募集期間。ほぼ使わない想定なので畳んでおく） -->
+                <div class="pt-3 border-t border-slate-100">
+                  <button
+                    type="button"
+                    on:click={() => (showSpecialPeriodsAdvanced = !showSpecialPeriodsAdvanced)}
+                    class="flex items-center gap-1 text-[11px] font-bold text-slate-400 hover:text-slate-600 bg-transparent border-0 cursor-pointer p-0"
+                  >
+                    <span class="material-symbols-outlined text-sm"
+                      >{showSpecialPeriodsAdvanced ? "expand_less" : "expand_more"}</span
+                    >
+                    高度な設定：独立した特別募集枠を作る（通常は不要です）
+                    {#if specialPeriodsList.filter((s) => s.isActive !== false).length > 0}
+                      <span
+                        class="px-2 py-0.5 rounded-full text-[9px] font-black bg-orange-500 text-white"
+                      >
+                        {specialPeriodsList.filter((s) => s.isActive !== false)
+                          .length}件有効
+                      </span>
+                    {/if}
+                  </button>
+
+                  {#if showSpecialPeriodsAdvanced}
+                    <div class="mt-3 space-y-4 font-sans">
+                      <p class="text-[10px] text-slate-500 leading-relaxed">
+                        通常のシフト期間（前半/後半）とは別に、独自の日付範囲・締切を持つ募集枠を新しく作成します。上の「対象日を変更する」で足りない場合のみ使ってください。
+                      </p>
+
+                      <!-- 新規作成フォーム -->
+                      <div class="bg-orange-50/30 p-4 rounded-xl border border-orange-100 space-y-3">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div>
+                            <label for="special-title-input" class="text-[10px] font-bold text-slate-700 block mb-1">
+                              🏷 募集枠タイトル
+                            </label>
+                            <input
+                              id="special-title-input"
+                              type="text"
+                              placeholder="例：お盆期間特別シフト"
+                              bind:value={specialTitleInput}
+                              class="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-white focus:outline-none focus:border-orange-500 box-border"
+                            />
+                          </div>
+                          <div>
+                            <label for="special-deadline-input" class="text-[10px] font-bold text-slate-700 block mb-1">
+                              ⏰ 希望提出締切日時
+                            </label>
+                            <input
+                              id="special-deadline-input"
+                              type="datetime-local"
+                              bind:value={specialDeadlineInput}
+                              class="w-full text-xs p-2.5 rounded-xl border border-slate-200 bg-white font-mono focus:outline-none focus:border-orange-500 box-border"
+                            />
+                          </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div>
+                            <label for="special-start-date" class="text-[10px] font-bold text-slate-700 block mb-1">
+                              📅 対象開始日
+                            </label>
+                            <input
+                              id="special-start-date"
+                              type="date"
+                              bind:value={specialStartDateInput}
+                              class="w-full text-xs p-2 rounded-xl border border-slate-200 bg-white font-mono focus:outline-none focus:border-orange-500 box-border"
+                            />
+                          </div>
+                          <div>
+                            <label for="special-end-date" class="text-[10px] font-bold text-slate-700 block mb-1">
+                              📅 対象終了日
+                            </label>
+                            <input
+                              id="special-end-date"
+                              type="date"
+                              bind:value={specialEndDateInput}
+                              class="w-full text-xs p-2 rounded-xl border border-slate-200 bg-white font-mono focus:outline-none focus:border-orange-500 box-border"
+                            />
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          on:click={() => saveSpecialPeriod()}
+                          class="w-full bg-gradient-to-r from-orange-500 to-amber-500 text-white font-bold text-xs py-2.5 rounded-xl border-0 shadow-xs hover:opacity-90 active:scale-98 cursor-pointer transition-all flex items-center justify-center gap-1 mt-2"
+                        >
+                          <span class="material-symbols-outlined text-sm">add_circle</span>
+                          <span>特別募集枠を新規作成</span>
+                        </button>
+                      </div>
+
+                      <!-- 登録済み募集枠リスト -->
+                      {#if specialPeriodsList.length > 0}
+                        <div class="space-y-2 pt-2">
+                          <p class="text-[10px] font-bold text-slate-500">登録済みの特別募集枠一覧</p>
+                          <div class="space-y-2 max-h-[220px] overflow-y-auto pr-1 hide-scrollbar">
+                            {#each specialPeriodsList as sp}
+                              <div
+                                class="flex items-center justify-between p-3 rounded-xl border transition-all {sp.isActive !== false ? 'bg-white border-orange-200 shadow-xs' : 'bg-slate-50 border-slate-200 opacity-60'}"
+                              >
+                                <div class="space-y-0.5">
+                                  <div class="flex items-center gap-2">
+                                    <span class="font-bold text-xs text-slate-800">{sp.title}</span>
+                                    <span class="text-[9px] font-bold px-2 py-0.5 rounded-full {sp.isActive !== false ? 'bg-orange-100 text-orange-700' : 'bg-slate-200 text-slate-600'}">
+                                      {sp.isActive !== false ? '有効' : '無効'}
+                                    </span>
+                                  </div>
+                                  <p class="text-[10px] text-slate-500 font-mono">
+                                    期間: {sp.startDate} 〜 {sp.endDate}
+                                  </p>
+                                  <p class="text-[10px] text-orange-600 font-medium">
+                                    締切: {new Date(sp.deadlineDate).toLocaleString("ja-JP", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" })}
+                                  </p>
+                                </div>
+
+                                <div class="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    on:click={() => saveSpecialPeriod(sp)}
+                                    class="text-[10px] font-bold px-2.5 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 cursor-pointer"
+                                  >
+                                    {sp.isActive !== false ? '無効にする' : '有効にする'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    on:click={() => deleteSpecialPeriod(sp.id)}
+                                    class="text-rose-500 hover:text-rose-700 p-1 border-0 bg-transparent cursor-pointer"
+                                    title="削除"
+                                  >
+                                    <span class="material-symbols-outlined text-sm">delete</span>
+                                  </button>
+                                </div>
+                              </div>
+                            {/each}
+                          </div>
+                        </div>
+                      {/if}
+                    </div>
+                  {/if}
                 </div>
               </div>
 
