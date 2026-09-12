@@ -16,7 +16,7 @@
  * @returns {Array} assigned_shifts 配列
  */
 export function generateShift(data) {
-  const { start_date, end_date, members, special_holidays = [], submissions = [], locked_assignments = [] } = data;
+  const { start_date, end_date, members, special_holidays = [], special_open_days = [], submissions = [], locked_assignments = [] } = data;
 
   // -------------------------------------------------------
   // 日付ユーティリティ
@@ -29,10 +29,12 @@ export function generateShift(data) {
   }
 
   const specialHolidaySet = new Set(special_holidays);
+  // 水曜定休だが、特別営業日として登録されている日はこの日に限り営業扱いにする
+  const specialOpenSet = new Set(special_open_days);
 
   function isHoliday(dateStr) {
     const dow = new Date(dateStr + 'T00:00:00').getDay(); // 0=日,3=水
-    return dow === 3 || specialHolidaySet.has(dateStr);
+    return (dow === 3 && !specialOpenSet.has(dateStr)) || specialHolidaySet.has(dateStr);
   }
   function isWeekend(dateStr) {
     const dow = new Date(dateStr + 'T00:00:00').getDay();

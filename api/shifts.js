@@ -166,8 +166,14 @@ export default async function handler(req, res) {
 
       const holidaysSnap = await db.collection('holidays').get();
       const specialHolidays = [];
+      const specialOpenDays = [];
       holidaysSnap.forEach(doc => {
-        specialHolidays.push(doc.id);
+        const hData = doc.data() || {};
+        if (hData.type === 'open') {
+          specialOpenDays.push(doc.id);
+        } else {
+          specialHolidays.push(doc.id);
+        }
       });
 
       const submissionsMap = new Map();
@@ -227,6 +233,7 @@ export default async function handler(req, res) {
         end_date: endDateStr,
         members,
         special_holidays: specialHolidays,
+        special_open_days: specialOpenDays,
         submissions,
         locked_assignments: lockedAssignments
       });

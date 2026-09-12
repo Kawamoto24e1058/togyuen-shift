@@ -221,11 +221,17 @@
   // 月度ステート
   let currentPeriod = getCurrentMonthPeriod();
 
+  // 特別営業日: 定休日(水曜)だが、この日だけ臨時で営業する日付のリスト
+  // (DATES/GRID_CELLS の生成で参照するため、それらの $: 宣言より前に定義する必要がある)
+  /** @type {string[]} */
+  let specialOpenDays = [];
+
   // 日付リストを動的に生成するヘルパー関数 (前半: 1-15日, 後半: 16-末日)
   /**
    * @param {string} periodStr
+   * @param {string[]} [specialOpenDaysList] 定休日だが特別に営業する日付のリスト
    */
-  function generateDates(periodStr) {
+  function generateDates(periodStr, specialOpenDaysList = []) {
     const parts = periodStr.split("-");
     const year = Number(parts[0]);
     const month = Number(parts[1]);
@@ -249,7 +255,9 @@
       const dateObj = new Date(year, month - 1, dayNum);
       const wName = wNameList[dateObj.getDay()];
       const isWeekend = dateObj.getDay() === 0 || dateObj.getDay() === 6;
-      const isRegularClosed = dateObj.getDay() === 3; // 毎週水曜定休
+      // 毎週水曜定休。ただし特別営業日として登録されている場合はこの日に限り営業扱いにする
+      const isRegularClosed =
+        dateObj.getDay() === 3 && !specialOpenDaysList.includes(dateStr);
 
       dates.push({
         dateStr,
@@ -266,8 +274,9 @@
   // カレンダーグリッド用のセルを動的生成するヘルパー関数 (曜日を揃えて期間外を曇りガラスに)
   /**
    * @param {string} periodStr
+   * @param {string[]} [specialOpenDaysList] 定休日だが特別に営業する日付のリスト
    */
-  function generateGridCells(periodStr) {
+  function generateGridCells(periodStr, specialOpenDaysList = []) {
     const parts = periodStr.split("-");
     const year = Number(parts[0]);
     const month = Number(parts[1]);
@@ -302,7 +311,8 @@
         day: `${prevMonth}/${String(prevDayNum).padStart(2, "0")}`,
         wName: wNameList[prevDateObj.getDay()],
         isWeekend: prevDateObj.getDay() === 0 || prevDateObj.getDay() === 6,
-        isRegularClosed: prevDateObj.getDay() === 3,
+        isRegularClosed:
+          prevDateObj.getDay() === 3 && !specialOpenDaysList.includes(dateStr),
         isOtherMonth: true, // 他の期間（非アクティブセル）
         dayNum: prevDayNum,
       });
@@ -317,7 +327,8 @@
         day: `${month}/${String(dayNum).padStart(2, "0")}`,
         wName: wNameList[dateObj.getDay()],
         isWeekend: dateObj.getDay() === 0 || dateObj.getDay() === 6,
-        isRegularClosed: dateObj.getDay() === 3,
+        isRegularClosed:
+          dateObj.getDay() === 3 && !specialOpenDaysList.includes(dateStr),
         isOtherMonth: false,
         dayNum,
       });
@@ -338,7 +349,8 @@
         day: `${nextMonth}/${String(nextDayNum).padStart(2, "0")}`,
         wName: wNameList[nextDateObj.getDay()],
         isWeekend: nextDateObj.getDay() === 0 || nextDateObj.getDay() === 6,
-        isRegularClosed: nextDateObj.getDay() === 3,
+        isRegularClosed:
+          nextDateObj.getDay() === 3 && !specialOpenDaysList.includes(dateStr),
         isOtherMonth: true, // 他の期間（非アクティブセル）
         dayNum: nextDayNum,
       });
@@ -384,10 +396,10 @@
 
   // リアクティブ変数として定義
   $: currentMonth = currentPeriod.substring(0, 7);
-  $: DATES = generateDates(currentPeriod);
-  $: GRID_CELLS = generateGridCells(currentPeriod);
-  $: DATES_MONTH = generateDates(currentMonth);
-  $: GRID_CELLS_MONTH = generateGridCells(currentMonth);
+  $: DATES = generateDates(currentPeriod, specialOpenDays);
+  $: GRID_CELLS = generateGridCells(currentPeriod, specialOpenDays);
+  $: DATES_MONTH = generateDates(currentMonth, specialOpenDays);
+  $: GRID_CELLS_MONTH = generateGridCells(currentMonth, specialOpenDays);
 
   // 日曜始まりのヘッダー定義
   const CALENDAR_HEADERS = ["日", "月", "火", "水", "木", "金", "土"];
@@ -466,7 +478,7 @@
     return relevantSubs.some((s) => s.isSubmitted === true);
   })();
 
-  $: modalGridCells = generateGridCells(currentPeriod);
+  $: modalGridCells = generateGridCells(currentPeriod, specialOpenDays);
 
   /**
    * @param {Member} member
@@ -2484,9 +2496,12 @@
     try {
       const res = await fetch("/api/holidays");
       if (res.ok) {
-        specialHolidays = await res.json();
+        const data = await res.json();
+        specialHolidays = data.holidays || [];
+        specialOpenDays = data.openDays || [];
         try {
           localStorage.setItem("cachedHolidays", JSON.stringify(specialHolidays));
+          localStorage.setItem("cachedOpenDays", JSON.stringify(specialOpenDays));
         } catch (e) {}
       }
     } catch (e) {
@@ -2503,15 +2518,16 @@
       const res = await fetch("/api/holidays", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: dateStr }),
+        body: JSON.stringify({ date: dateStr, type: "closed" }),
       });
       if (!res.ok) {
         throw new Error(await res.text());
       }
       const data = await res.json();
       specialHolidays = data.holidays; // APIが返却する最新リストに更新
+      specialOpenDays = data.openDays;
 
-      if (data.isHoliday) {
+      if (data.isActive) {
         // 臨時休業日に設定された場合、その日の既存アサインを消去
         shifts = shifts.filter((s) => s.date !== dateStr);
         triggerToast(`🔴 ${dateStr} を臨時休業日に設定しました。`);
@@ -2521,6 +2537,39 @@
     } catch (error) {
       const err = /** @type {any} */ (error);
       triggerToast(`⚠️ 休業設定エラー: ${err.message}`);
+    }
+  }
+
+  /**
+   * 定休日（水曜）だけ、特別に営業日として開けるためのトグル。
+   * お盆や特別営業などで「定休日だが今回だけ開ける」場合に使う。
+   * @param {string | null} dateStr
+   */
+  async function toggleSpecialOpenDay(dateStr) {
+    if (!dateStr) return;
+    try {
+      const res = await fetch("/api/holidays", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: dateStr, type: "open" }),
+      });
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+      const data = await res.json();
+      specialHolidays = data.holidays;
+      specialOpenDays = data.openDays;
+
+      if (data.isActive) {
+        triggerToast(`🎉 ${dateStr} を特別営業日に設定しました（定休日を営業）。`);
+      } else {
+        triggerToast(`⬅️ ${dateStr} の特別営業日設定を解除しました（定休日に戻ります）。`);
+        // 特別営業設定を解除した場合、その日の既存アサインを消去（定休日に戻るため）
+        shifts = shifts.filter((s) => s.date !== dateStr);
+      }
+    } catch (error) {
+      const err = /** @type {any} */ (error);
+      triggerToast(`⚠️ 特別営業設定エラー: ${err.message}`);
     }
   }
 
@@ -4044,7 +4093,12 @@
                             ? 'bg-primary'
                             : 'bg-outline'}"
                         ></div>
-                        {#if !isAvail}
+                        {#if specialOpenDays.includes(d.dateStr)}
+                          <span
+                            class="text-[8px] font-bold text-amber-600 mt-0.5"
+                            >特別営業</span
+                          >
+                        {:else if !isAvail}
                           <span
                             class="text-[8px] font-bold text-on-surface-variant mt-0.5"
                             >休み</span
@@ -4462,7 +4516,11 @@
                         >
                           {d.dayNum}
                         </span>
-                        {#if !d.isOtherMonth && !isClosed && isDeficit}
+                        {#if !d.isOtherMonth && specialOpenDays.includes(d.dateStr)}
+                          <span class="text-[8px] font-bold text-amber-600"
+                            >🎉特別営業</span
+                          >
+                        {:else if !d.isOtherMonth && !isClosed && isDeficit}
                           <span class="text-[8px] font-bold text-error"
                             >警告</span
                           >
@@ -5534,9 +5592,12 @@
     {@const monthNum = parseInt(dateParts[1])}
     {@const dayNum = parseInt(dateParts[2])}
     {@const isHoliday = specialHolidays.includes(selectedEditDate)}
+    {@const isSpecialOpenDay = specialOpenDays.includes(selectedEditDate)}
     {@const isRegularClosed = DATES.find(
       (d) => d.dateStr === selectedEditDate,
     )?.isRegularClosed}
+    {@const isInherentWednesday =
+      new Date(selectedEditDate + "T00:00:00").getDay() === 3}
     {@const dateShifts = shifts.filter((s) => s.date === selectedEditDate)}
 
     <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -5586,6 +5647,32 @@
               <div class="ios-switch-knob"></div>
             </button>
           </div>
+
+          {#if isInherentWednesday}
+            <div
+              class="bg-amber-50 p-4 rounded-xl border border-amber-100 flex items-center justify-between mb-5 text-xs font-semibold"
+            >
+              <div>
+                <p class="font-bold text-amber-900">
+                  🎉 特別営業日にする（定休日を営業）
+                </p>
+                <p class="text-[10px] text-amber-700/80 font-medium mt-0.5">
+                  水曜定休ですが、この日だけ臨時で営業日にします。通常の営業日と同様にシフトを組めます。
+                </p>
+              </div>
+
+              <button
+                type="button"
+                role="switch"
+                aria-label="特別営業日にする"
+                aria-checked={isSpecialOpenDay}
+                on:click={() => toggleSpecialOpenDay(selectedEditDate)}
+                class="ios-switch {isSpecialOpenDay ? 'ios-switch-active' : ''}"
+              >
+                <div class="ios-switch-knob"></div>
+              </button>
+            </div>
+          {/if}
 
           {#if !isHoliday && !isRegularClosed}
             <div class="space-y-4">

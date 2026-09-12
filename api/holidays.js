@@ -11,25 +11,36 @@ export default async function handler(req, res) {
     return res.status(200).end();
   }
 
-  // GET /api/holidays - 全休業日を日付配列として取得
+  // GET /api/holidays - 臨時休業日・特別営業日を日付配列として取得
+  // (後方互換のため、レスポンスのトップレベルは従来通り「臨時休業日の配列」を
+  //  直接返す関数としても呼べるように、holidays フィールドをそのまま返す。
+  //  特別営業日(定休日を臨時で営業日にする)は openDays に分けて返す。)
   if (req.method === 'GET') {
     try {
       const snapshot = await db.collection('holidays').get();
       const holidays = [];
+      const openDays = [];
       snapshot.forEach(doc => {
-        holidays.push(doc.id); // ドキュメントIDが日付（YYYY-MM-DD）
+        const data = doc.data() || {};
+        if (data.type === 'open') {
+          openDays.push(doc.id);
+        } else {
+          holidays.push(doc.id); // ドキュメントIDが日付（YYYY-MM-DD）
+        }
       });
-      return res.status(200).json(holidays);
+      return res.status(200).json({ holidays, openDays });
     } catch (err) {
       console.error('[API Holidays GET] Error:', err);
       return res.status(500).send('休業日データの取得に失敗しました。');
     }
   }
 
-  // POST /api/holidays - 特定の日付の休業設定をトグル（切り替え）
+  // POST /api/holidays - 特定の日付の休業/特別営業設定をトグル（切り替え）
+  // body: { date, type } — type省略時は従来通り 'closed'（臨時休業）。'open' で特別営業（定休日を営業日にする）。
   if (req.method === 'POST') {
     try {
-      const { date } = req.body || {};
+      const { date, type: rawType } = req.body || {};
+      const type = rawType === 'open' ? 'open' : 'closed';
       if (!date) {
         return res.status(400).send('必須パラメータ（date）が指定されていません。');
       }
@@ -42,34 +53,49 @@ export default async function handler(req, res) {
       const docRef = db.collection('holidays').doc(date);
       const doc = await docRef.get();
 
-      let isHoliday = false;
-      if (doc.exists) {
-        // すでに登録されている場合は解除（通常営業に戻す）
+      let isActive = false;
+      if (doc.exists && (doc.data().type === 'open' ? 'open' : 'closed') === type) {
+        // 同じ種別が既に設定されている場合は解除（通常の状態に戻す）
         await docRef.delete();
-        console.log(`[API Holidays POST] Removed holiday: ${date}`);
+        console.log(`[API Holidays POST] Removed ${type} override: ${date}`);
       } else {
-        // 登録されていない場合は設定（臨時休業に設定）
+        // 未設定、または別の種別が設定されている場合はこの種別で上書き設定
         await docRef.set({
           date,
-          reason: '臨時休業',
+          type,
+          reason: type === 'open' ? '特別営業' : '臨時休業',
           createdAt: new Date().toISOString()
         });
-        isHoliday = true;
-        console.log(`[API Holidays POST] Added holiday: ${date}`);
+        isActive = true;
+        console.log(`[API Holidays POST] Set ${type} override: ${date}`);
       }
 
-      // 更新後の全休業日リストを取得して返却
+      // 更新後の全休業日/特別営業日リストを取得して返却
       const snapshot = await db.collection('holidays').get();
       const updatedHolidays = [];
+      const updatedOpenDays = [];
       snapshot.forEach(d => {
-        updatedHolidays.push(d.id);
+        const data = d.data() || {};
+        if (data.type === 'open') {
+          updatedOpenDays.push(d.id);
+        } else {
+          updatedHolidays.push(d.id);
+        }
       });
 
+      const message = type === 'open'
+        ? (isActive ? '特別営業日に設定しました。' : '特別営業日の設定を解除しました。')
+        : (isActive ? '臨時休業日に設定しました。' : '通常営業に戻しました。');
+
       return res.status(200).json({
-        message: isHoliday ? '臨時休業日に設定しました。' : '通常営業に戻しました。',
+        message,
         date,
-        isHoliday,
-        holidays: updatedHolidays
+        type,
+        isActive,
+        // 後方互換: 臨時休業トグルを呼んでいた既存コードのため isHoliday も維持
+        isHoliday: type === 'closed' ? isActive : undefined,
+        holidays: updatedHolidays,
+        openDays: updatedOpenDays
       });
     } catch (err) {
       console.error('[API Holidays POST] Error:', err);
