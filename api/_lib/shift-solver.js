@@ -119,9 +119,19 @@ export function generateShift(data) {
     const minRequired  = Math.max(2, numLocked); // 最低人数
 
     // 必要な追加人数を判定
+    const yesterdayStr = getPrevDateStr(dateStr);
+    const workedYesterday = (id) =>
+      !!(assignments[yesterdayStr] && assignments[yesterdayStr][id] !== null && assignments[yesterdayStr][id] !== undefined);
+
     const availableRegulars = members
       .filter(m => isRegular(m) && canWork(m, dateStr) && assignments[dateStr][m.id] === null)
       .sort((a, b) => {
+        // 多連勤回避: 前日も勤務していた人は後回しにする（できるだけ連続勤務を避ける）
+        const aWorkedYesterday = workedYesterday(a.id) ? 1 : 0;
+        const bWorkedYesterday = workedYesterday(b.id) ? 1 : 0;
+        if (aWorkedYesterday !== bWorkedYesterday) {
+          return aWorkedYesterday - bWorkedYesterday;
+        }
         // 土日のキッチンに限り、早出可能（canHappyHour）なメンバーを最優先にする
         if (isWeekend(dateStr)) {
           const aIsKitchen = a.roles.includes('kitchen');
@@ -228,7 +238,20 @@ export function generateShift(data) {
     let finalHallFilled = Object.entries(assignments[dateStr]).some(([id, r]) => r === 'hall');
     let finalTotal = Object.values(assignments[dateStr]).filter(r => r !== null).length;
 
-    const availableAdmins = members.filter(m => m.isAdmin === true && canWork(m, dateStr) && assignments[dateStr][m.id] === null);
+    // 人手不足の補填はまず石崎杏理沙を優先する（店長を固定で駆り出さないようにするため）。
+    // 彼女が対応できない場合のみ他の管理者にフォールバックする。
+    const PRIMARY_BACKUP_NAME = '石崎杏理沙';
+    const availableAdmins = members
+      .filter(m => m.isAdmin === true && canWork(m, dateStr) && assignments[dateStr][m.id] === null)
+      .sort((a, b) => {
+        const aIsPrimary = a.name === PRIMARY_BACKUP_NAME ? 0 : 1;
+        const bIsPrimary = b.name === PRIMARY_BACKUP_NAME ? 0 : 1;
+        if (aIsPrimary !== bIsPrimary) return aIsPrimary - bIsPrimary;
+        // 多連勤回避: 前日も勤務していた人は後回しにする
+        const aWorkedYesterday = workedYesterday(a.id) ? 1 : 0;
+        const bWorkedYesterday = workedYesterday(b.id) ? 1 : 0;
+        return aWorkedYesterday - bWorkedYesterday;
+      });
 
     // 1. キッチンが不在の場合、キッチン可能な管理者を割り当て
     if (!finalKitchenFilled && availableAdmins.length > 0) {
@@ -412,4 +435,9 @@ function formatDate(d) {
 }
 function workCount(assignments, memberId) {
   return Object.values(assignments).filter(dayMap => dayMap[memberId] !== null).length;
+}
+function getPrevDateStr(dateStr) {
+  const d = parseDate(dateStr);
+  d.setDate(d.getDate() - 1);
+  return formatDate(d);
 }
