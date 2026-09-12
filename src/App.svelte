@@ -502,9 +502,8 @@
   let selectedQuickLoginMember = null;
   let quickLoginPasscode = "";
 
-  // 名前検索でのログイン（機種変更・別端末などでクイックログイン履歴がない場合の救済導線）用
+  // 全スタッフから選んでログイン（機種変更・別端末などでクイックログイン履歴がない場合の救済導線）用
   let showStaffSearch = false;
-  let staffSearchQuery = "";
 
   /** @type {number[]} */
   let myDeviceUserIds = [];
@@ -611,26 +610,9 @@
 
     selectedQuickLoginMember = null;
     quickLoginPasscode = "";
-    staffSearchQuery = "";
     showStaffSearch = false;
   }
 
-  // 名前検索でのログイン結果（この端末にクイックログイン履歴がない相手も含め、
-  // 有効なスタッフ全員から探せる。パスコード確認つき）
-  $: staffSearchResults =
-    staffSearchQuery.trim().length > 0
-      ? members
-          .filter(
-            (m) =>
-              m.isActive !== false &&
-              (m.name || "").includes(staffSearchQuery.trim()),
-          )
-          .slice(0, 8)
-      : [];
-
-  /**
-   * 名前検索でのログイン確定。パスコードが一致した場合のみログインする。
-   */
   // 管理者設定ダッシュボード用（動的充足率 ＆ 警告アラート）
   $: firstAlertDate = Object.keys(validationResults).find(
     (date) =>
@@ -3295,14 +3277,14 @@
                         この端末でログインした履歴がありません
                       </p>
                       <p class="text-[10px] text-slate-400 font-semibold mt-1">
-                        機種変更・別の端末の方は、下の「名前で検索してログイン」をご利用ください。新規のスタッフの方のみ「新規登録」タブから登録してください。
+                        機種変更・別の端末の方は、下の「全スタッフから選んでログイン」をご利用ください。新規のスタッフの方のみ「新規登録」タブから登録してください。
                       </p>
                     </div>
                   {/each}
                 </div>
               </div>
 
-              <!-- 名前検索でのログイン（機種変更・別端末からの救済導線） -->
+              <!-- 全スタッフから選んでログイン（機種変更・別端末からの救済導線） -->
               <div class="border-t border-slate-100 pt-5">
                 {#if !showStaffSearch}
                   <button
@@ -3310,50 +3292,41 @@
                     on:click={() => (showStaffSearch = true)}
                     class="w-full flex items-center justify-center gap-1.5 py-2.5 px-4 rounded-xl border border-dashed border-slate-300 text-slate-500 hover:text-primary hover:border-primary/40 text-xs font-bold cursor-pointer bg-transparent transition-all"
                   >
-                    <span class="material-symbols-outlined text-sm"
-                      >person_search</span
+                    <span class="material-symbols-outlined text-sm">groups</span
                     >
-                    名前で検索してログイン（機種変更・別の端末の方）
+                    全スタッフから選んでログイン（機種変更・別の端末の方）
                   </button>
                 {:else}
                   <p
                     class="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3"
                   >
-                    名前で検索してログイン
+                    全スタッフから選ぶ
                   </p>
 
-                  <input
-                    type="text"
-                    bind:value={staffSearchQuery}
-                    placeholder="お名前の一部を入力（例: 川本）"
-                    class="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-primary transition-colors mb-3"
-                  />
-                  {#if staffSearchQuery.trim().length > 0}
-                    <div class="flex flex-col gap-2 max-h-[220px] overflow-y-auto hide-scrollbar">
-                      {#each staffSearchResults as m}
-                        <button
-                          type="button"
-                          on:click={() => handleQuickLoginSelect(m)}
-                          class="w-full flex items-center gap-3 p-3 rounded-xl border border-slate-200 bg-slate-50 hover:border-primary/40 hover:bg-primary/5 transition-all text-left cursor-pointer"
+                  <div class="flex flex-col gap-2 max-h-[320px] overflow-y-auto hide-scrollbar">
+                    {#each members.filter((m) => m.isActive !== false) as m}
+                      <button
+                        type="button"
+                        on:click={() => handleQuickLoginSelect(m)}
+                        class="w-full flex items-center gap-3 p-3 rounded-xl border border-slate-200 bg-slate-50 hover:border-primary/40 hover:bg-primary/5 transition-all text-left cursor-pointer"
+                      >
+                        <div
+                          class="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0"
                         >
-                          <div
-                            class="w-9 h-9 rounded-lg bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0"
-                          >
-                            {m.initialChar || m.name.charAt(0)}
-                          </div>
-                          <span class="text-xs font-bold text-slate-800"
-                            >{m.name}</span
-                          >
-                        </button>
-                      {:else}
-                        <p
-                          class="text-xs text-slate-400 text-center py-4 font-medium"
+                          {m.initialChar || m.name.charAt(0)}
+                        </div>
+                        <span class="text-xs font-bold text-slate-800"
+                          >{m.name}</span
                         >
-                          該当するスタッフが見つかりません
-                        </p>
-                      {/each}
-                    </div>
-                  {/if}
+                      </button>
+                    {:else}
+                      <p
+                        class="text-xs text-slate-400 text-center py-4 font-medium"
+                      >
+                        登録されているスタッフがいません
+                      </p>
+                    {/each}
+                  </div>
                 {/if}
               </div>
             </div>
@@ -3369,7 +3342,7 @@
                   >info</span
                 >
                 <span
-                  >既にスタッフとして登録済みの方は、こちらではなく「スタッフログイン」タブの「名前で検索してログイン」をご利用ください。ここから登録すると別の新しいアカウントが作られてしまいます。</span
+                  >既にスタッフとして登録済みの方は、こちらではなく「スタッフログイン」タブの「全スタッフから選んでログイン」をご利用ください。ここから登録すると別の新しいアカウントが作られてしまいます。</span
                 >
               </div>
 
